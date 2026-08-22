@@ -1,0 +1,294 @@
+1. Một camera tạo ảnh có kích thước 1920 × 1080. Hãy tính số lượng pixel của ảnh và giải thích ảnh hưởng của việc giảm kích thước xuống 640 × 480.
+* Ảnh ban đầu:
+1920x1080=2.073.600 pixel
+* Ảnh sau khi giảm:
+640x480=307.200 pixel
+Tỷ lệ số pixel còn lại: 14,8%
+Tức là số pixel giảm khoảng 85,2%.
+Ảnh hưởng:
+Giảm dung lượng ảnh.
+Giảm thời gian xử lý.
+Tăng tốc độ truyền dữ liệu.
+Nhưng làm giảm độ phân giải, mất các chi tiết nhỏ.
+Với bài toán nhận dạng vật thể lớn có thể không ảnh hưởng nhiều, nhưng với nhận diện chi tiết nhỏ thì hiệu quả có thể giảm đáng kể.
+
+2. Một hệ thống cần phát hiện quả bóng màu đỏ trong video. Bạn sẽ chọn không gian màu nào? Giải thích lý do.
+
+chọn HSV thay vì RGB.
+Trong RGB, màu đỏ được biểu diễn bởi sự kết hợp của ba kênh R, G, B nên việc xác định màu đỏ có thể bị ảnh hưởng bởi độ sáng.
+Trong HSV:
+
+H (Hue): biểu diễn loại màu.
+S (Saturation): độ bão hòa.
+V (Value): độ sáng.
+
+Ta có thể dựa chủ yếu vào Hue để xác định vùng màu đỏ, sau đó dùng Saturation/Value để loại bỏ các vùng không phù hợp.
+
+Ví dụ quy trình:
+
+RGB → HSV → tạo mask màu đỏ → lọc nhiễu → tìm contour → xác định quả bóng.**
+
+Kết luận: HSV phù hợp vì tách thông tin màu sắc khỏi độ sáng, giúp phát hiện màu đỏ ổn định hơn RGB.
+
+3. Một camera hoạt động trong điều kiện ánh sáng yếu tạo ra ảnh có độ tương phản thấp. Bạn đề xuất kỹ thuật tiền xử lý nào?
+
+Có thể sử dụng:
+
+Histogram Equalization hoặc tốt hơn là CLAHE.
+ 
+Histogram Equalization
+
+Phân bố lại mức xám để tăng độ tương phản toàn ảnh.
+
+CLAHE
+
+CLAHE = Contrast Limited Adaptive Histogram Equalization.
+
+Nó chia ảnh thành các vùng nhỏ rồi tăng tương phản cục bộ, đồng thời giới hạn mức khuếch đại để tránh làm nhiễu quá mức.
+
+Quy trình:
+
+Ảnh tối → chuyển grayscale → CLAHE → ảnh có độ tương phản tốt hơn → đưa vào bước nhận dạng.**
+
+Nếu ảnh có nhiễu nhiều, có thể kết hợp:
+
+Gaussian/Median Blur → CLAHE → nhận dạng.
+
+4. Một ảnh chứa nhiều nhiễu dạng đốm nhỏ. Bạn lựa chọn bộ lọc nào để khử nhiễu? Vì sao?
+
+Nếu nhiễu có dạng đốm nhỏ, đặc biệt là salt-and-pepper noise, nên sử dụng Median Filter.
+
+Ví dụ:
+cv2.medianBlur(img, 5)
+
+Median Filter thay giá trị pixel bằng **giá trị trung vị** trong vùng lân cận.
+
+Ưu điểm:
+
+Loại bỏ tốt nhiễu dạng đốm.
+Giữ được biên tốt hơn so với một số bộ lọc làm mờ thông thường.
+Phù hợp trước bước phát hiện biên.
+
+Nếu nhiễu là nhiễu Gaussian thì có thể ưu tiên Gaussian Filter.
+
+5. Một hệ thống nhận dạng khuôn mặt yêu cầu tất cả ảnh đầu vào có kích thước giống nhau. Bạn sẽ thực hiện những bước tiền xử lý nào?
+
+Có thể thực hiện theo quy trình:
+
+Ảnh đầu vào → Resize → chuẩn hóa → chuyển đổi định dạng → đưa vào mô hình.
+
+Cụ thể:
+
+1. Đọc ảnh.
+2. Kiểm tra ảnh có hợp lệ hay không.
+3. Phát hiện/cắt vùng khuôn mặt.
+4. **Resize** về kích thước cố định, ví dụ `224 × 224`.
+5. Chuyển đổi màu nếu cần, ví dụ BGR → RGB.
+6. Chuẩn hóa pixel
+hoặc chuẩn hóa theo mean và standard deviation của mô hình.
+7. Đưa ảnh vào model.
+
+Lưu ý: Nếu tỷ lệ khung hình khác nhau, nên cân nhắc **padding hoặc crop** thay vì resize trực tiếp để tránh làm biến dạng khuôn mặt.
+
+6. Cho bài toán xử lý ảnh để nhận dạng bề mặt có nhiều nhiễu. Bạn sẽ sử dụng phép toán hình thái học nào để xử lý?
+
+Có thể sử dụng **Opening** và **Closing**.
+
+Opening
+Opening = Erosion \rightarrow Dilation
+
+Dùng để:
+
+* Loại bỏ các điểm nhiễu nhỏ.
+* Loại bỏ các vật thể nhỏ không mong muốn.
+Closing
+
+Closing = Dilation \rightarrow Erosion
+
+Dùng để:
+
+* Lấp các lỗ nhỏ.
+* Nối các vùng bị đứt.
+* Làm đầy các khoảng trống nhỏ.
+
+Ví dụ với ảnh chứa các vùng lỗi trên bề mặt:
+
+**Threshold → Opening để loại nhiễu → Closing để nối vùng lỗi → tìm Contour/Connected Components.**
+
+7. Hãy đề xuất quy trình xử lý ảnh bằng OpenCV cho bài toán: Đọc ảnh → chuyển ảnh xám → khử nhiễu → phát hiện biên → hiển thị kết quả.
+
+Quy trình:
+
+text
+Ảnh gốc
+   ↓
+cv2.imread()
+   ↓
+Chuyển grayscale
+   ↓
+Gaussian Blur / Median Blur
+   ↓
+Canny Edge Detection
+   ↓
+Hiển thị ảnh
+8. Một ứng dụng cần nhận diện màu của các đèn giao thông đang thay đổi. Hãy lựa chọn không gian màu và đề xuất quy trình xử lý.
+
+Nên sử dụng **HSV**.
+
+Quy trình:
+
+```text
+Video
+ ↓
+Đọc từng frame
+ ↓
+BGR → HSV
+ ↓
+Tạo mask màu đỏ/vàng/xanh
+ ↓
+Morphological Filtering
+ ↓
+Contour Detection
+ ↓
+Xác định vị trí đèn
+ ↓
+Xác định màu đèn
+```
+Ví dụ:
+
+* **Đỏ** → khoảng Hue tương ứng với màu đỏ.
+* **Vàng** → vùng Hue của màu vàng.
+* **Xanh** → vùng Hue của màu xanh.
+
+Sau khi tạo mask, có thể sử dụng:
+
+cv2.morphologyEx()
+cv2.findContours()
+để loại bỏ nhiễu và tìm vùng đèn.
+
+HSV phù hợp vì thông tin Hue giúp phân biệt màu tốt hơn trong nhiều điều kiện ánh sáng so với RGB.
+9. Một ô tô đỗ phía sau một chiếc gấp ghế làm tối phần thân xe. Hãy phân tích nhận định này.
+
+Nhận định này cho thấy **ánh sáng và vật cản ảnh hưởng trực tiếp đến chất lượng ảnh và kết quả thị giác máy tính**.
+
+Chiếc ghế tạo bóng → phần thân xe có độ sáng thấp → pixel của vùng xe có thể gần với pixel của nền.
+
+Hậu quả:
+
+* Giảm độ tương phản.
+* Khó phân đoạn đối tượng.
+* Edge Detection có thể không phát hiện đầy đủ biên.
+* Object Detection có thể giảm độ chính xác.
+* Một phần vật thể có thể bị bỏ sót.
+
+Một số giải pháp:
+
+* Histogram Equalization.
+* CLAHE.
+* Điều chỉnh brightness/contrast.
+* Sử dụng các mô hình robust với thay đổi ánh sáng.
+* Thu thập dữ liệu với nhiều điều kiện chiếu sáng khác nhau.
+
+**Kết luận:** Đây là ví dụ cho thấy hệ thống thị giác máy tính không chỉ phụ thuộc vào thuật toán mà còn phụ thuộc mạnh vào **điều kiện môi trường**.
+10. So sánh hai quy trình:
+
+**RGB → tiền xử lý → nhận dạng**
+
+và
+
+**RGB → HSV → phân đoạn màu → nhận dạng**
+
+Trong trường hợp nào quy trình thứ hai có ưu thế?
+
+Quy trình 1
+
+RGB
+ ↓
+Tiền xử lý
+ ↓
+Nhận dạng
+```
+
+Phù hợp khi bài toán cần sử dụng nhiều thông tin của ảnh như:
+
+* Hình dạng.
+* Texture.
+* Màu sắc.
+* Đặc trưng không gian.
+
+Quy trình 2
+
+RGB
+ ↓
+HSV
+ ↓
+Phân đoạn màu
+ ↓
+Nhận dạng
+```
+
+Đặc biệt hiệu quả khi **màu sắc là đặc trưng quan trọng để xác định đối tượng**.
+
+Ví dụ:
+
+* Phát hiện quả bóng đỏ.
+* Phát hiện đèn giao thông.
+* Phát hiện vật thể có màu đặc biệt.
+* Phân loại vùng màu trên sản phẩm.
+
+**Ưu thế của quy trình 2:** có thể loại bỏ phần lớn background dựa trên màu trước khi nhận dạng, giúp giảm lượng dữ liệu cần xử lý.
+
+11. Một hệ thống nhận dạng hoạt động tốt với ảnh ban ngày nhưng giảm độ chính xác vào ban đêm. Hãy phân tích các nguyên nhân có thể xảy ra và đề xuất giải pháp.
+Nguyên nhân
+
+**1. Thay đổi ánh sáng**
+Ban đêm ảnh tối hơn, độ tương phản thấp.
+**2. Nhiễu cảm biến**
+Khi thiếu sáng, camera thường tăng ISO → nhiễu tăng.
+**3. Mất thông tin chi tiết**
+Một số vùng bị quá tối nên đối tượng không còn đủ đặc trưng.
+**4. Khác biệt giữa dữ liệu train và dữ liệu thực tế**
+Nếu model chủ yếu được huấn luyện bằng ảnh ban ngày thì khả năng tổng quát sang ảnh ban đêm sẽ kém.
+Giải pháp
+
+* Tăng cường dữ liệu bằng **Data Augmentation**.
+* Bổ sung ảnh ban đêm vào training dataset.
+* Dùng CLAHE hoặc kỹ thuật enhancement.
+* Dùng các phương pháp giảm nhiễu.
+* Điều chỉnh camera/chế độ phơi sáng.
+* Fine-tune model với dữ liệu ban đêm.
+* Có thể sử dụng các mô hình chuyên xử lý ảnh low-light.
+
+Quan trọng nhất là **dữ liệu huấn luyện phải đại diện cho điều kiện thực tế**.
+
+12. Vì sao tiền xử lý quá mức có thể làm giảm hiệu quả của hệ thống thị giác máy tính thay vì cải thiện kết quả?
+
+Tiền xử lý không phải càng nhiều càng tốt.
+
+Nếu xử lý quá mức có thể:
+**1. Làm mất thông tin quan trọng**
+Ví dụ blur quá mạnh có thể làm mất các cạnh nhỏ.
+**2. Làm biến dạng đặc trưng**
+Histogram Equalization quá mạnh có thể làm thay đổi đặc điểm ban đầu của ảnh.
+**3. Khuếch đại nhiễu**
+Một số phương pháp tăng contrast có thể đồng thời làm nổi bật noise.
+**4. Tạo ra ảnh khác xa dữ liệu huấn luyện**
+Model được train trên ảnh tự nhiên nhưng khi inference lại nhận ảnh đã xử lý quá mạnh → phân phối dữ liệu thay đổi → accuracy giảm.
+**5. Tăng thời gian xử lý**
+Quá nhiều bước tiền xử lý làm tăng computational cost và giảm tốc độ hệ thống.
+
+Kết luận quan trọng
+
+**Tiền xử lý phải phục vụ mục tiêu của bài toán, không phải càng nhiều bước càng tốt.**
+
+Một quy trình tốt thường là:
+Ảnh gốc
+   ↓
+Phân tích loại nhiễu / vấn đề
+   ↓
+Chọn phép tiền xử lý phù hợp
+   ↓
+Kiểm tra kết quả
+   ↓
+Đưa vào model
+Nếu **ảnh gốc đã đủ tốt**, đôi khi **không cần tiền xử lý hoặc chỉ cần một vài bước đơn giản**.

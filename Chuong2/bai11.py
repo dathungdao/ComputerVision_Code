@@ -26,10 +26,10 @@ import matplotlib.pyplot as plt
 # 1. ĐỌC ẢNH
 # ============================================================
 
-img = cv2.imread("image.png")
+img = cv2.imread("cat.png")
 
 if img is None:
-    print("Không thể đọc ảnh image.png!")
+    print("Không thể đọc ảnh cat.png!")
     exit()
 
 # OpenCV đọc ảnh theo thứ tự BGR.

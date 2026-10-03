@@ -16,8 +16,7 @@ from skimage.feature import (hog, local_binary_pattern,
 
 from sklearn.base import clone
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.model_selection import (train_test_split, StratifiedKFold,
-                                     ParameterGrid)
+from sklearn.model_selection import StratifiedKFold, ParameterGrid
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
@@ -41,8 +40,8 @@ from sklearn.metrics import (
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 # ============================================================
-# BÀI TẬP CHƯƠNG 3: NHẬN DẠNG 5 LOẠI RAU THƠM TỪ ẢNH LÁ
-#   Húng quế - Tía tô - Rau răm - Mùi tàu - Lá lốt
+# BÀI TẬP CHƯƠNG 3: NHẬN DẠNG 4 LOẠI RAU THƠM TỪ ẢNH LÁ
+#   Húng quế - Tía tô - Mùi tàu - Lá lốt
 #
 # Ứng dụng: cân tự tính tiền ở siêu thị (rau không có mã vạch),
 #           app hỗ trợ người đi chợ phân biệt các loại rau dễ nhầm.
@@ -57,17 +56,21 @@ warnings.filterwarnings("ignore", category=ConvergenceWarning)
 #   6. Trích chọn đặc trưng (Color, Texture, Shape, HOG, ORB)
 #   7. Kết hợp các đặc trưng
 #   8. Chuẩn hóa và giảm chiều (Standard / MinMax / PCA)
-#   9. Chia tập dữ liệu (Train / Validation / Test)
+#   9. Chia dữ liệu: Group K-fold Cross-Validation theo khối ảnh
+#      (ảnh của cùng một lá không nằm ở cả train và test)
 #  10. Huấn luyện với bộ phân lớp (KNN, SVM, DT, RF, NB, LR)
 #  11. Dự đoán dữ liệu mới
 #  12. Đánh giá hệ thống (Accuracy, Precision, Recall, F1)
 #
-# Cấu trúc dữ liệu (tự chụp: mỗi ảnh MỘT lá đặt trên giấy trắng):
-#   Chuong3/
-#       dataset/        ← bộ chính (train / val / test)
-#           hung_que/ tia_to/ rau_ram/ mui_tau/ la_lot/
-#       dataset_hard/   ← bộ test "khó" (lá héo/rách, nền khác, tối...)
-#           hung_que/ ...
+# Thêm: tăng cường dữ liệu (augmentation) bằng biến đổi ảnh - làm mờ,
+#       thêm nhiễu, làm sáng, làm tối, xoay - và kiểm tra độ bền của mô
+#       hình khi ảnh test bị biến đổi.
+#
+# Cấu trúc dữ liệu (tự chụp: mỗi ảnh MỘT lá đặt trên giấy trắng,
+# tên file đánh số theo thứ tự chụp):
+#   Chuong3/dataset/
+#       hung_que/ hung_que_01.jpg ... hung_que_50.jpg
+#       tia_to/   mui_tau/   la_lot/
 #
 # Chạy:
 #   python nhan_dang_rau_thom.py          # kết quả lưu trong results/
@@ -77,22 +80,21 @@ warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DATASET = os.path.join(BASE_DIR, "dataset")
-DEFAULT_HARD = os.path.join(BASE_DIR, "dataset_hard")
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 
 # Tên thư mục không dấu (tránh lỗi đường dẫn), tên hiển thị có dấu
-CLASSES = ["hung_que", "tia_to", "rau_ram", "mui_tau", "la_lot"]
-CLASS_NAMES = {"hung_que": "Húng quế", "tia_to": "Tía tô", "rau_ram": "Rau răm",
-               "mui_tau": "Mùi tàu", "la_lot": "Lá lốt"}
+CLASSES = ["hung_que", "tia_to", "mui_tau", "la_lot"]
+CLASS_NAMES = {"hung_que": "Húng quế", "tia_to": "Tía tô", "mui_tau": "Mùi tàu",
+               "la_lot": "Lá lốt"}
 IMG_EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".webp")
 
 MAX_SIDE = 800              # ảnh điện thoại rất lớn → thu nhỏ khi đọc
 ROI_W, ROI_H = 384, 192     # khung chứa lá sau khi xoay (trục dài nằm ngang)
-MIN_PER_CLASS = 60          # khuyến nghị tối thiểu mỗi lớp
+MIN_PER_CLASS = 40          # khuyến nghị tối thiểu mỗi lớp
 MIN_TO_USE = 10             # lớp có ít hơn số này sẽ bị bỏ qua
-FEATURE_VERSION = 2         # tăng khi đổi cách trích đặc trưng → bỏ cache
+N_FOLDS = 5                 # số khối ảnh liên tiếp mỗi lớp = số fold CV
+FEATURE_VERSION = 3         # tăng khi đổi cách trích đặc trưng → bỏ cache
 SEED = 42
-
 
 class Tee:
     """Vừa in ra màn hình vừa ghi vào file log (dùng cho báo cáo)."""
@@ -136,12 +138,18 @@ def save_csv(path, headers, rows):
 # BƯỚC 2. THU THẬP VÀ TỔ CHỨC DỮ LIỆU
 # ============================================================
 
-def imread_unicode(path):
-    """cv2.imread không đọc được đường dẫn có dấu tiếng Việt trên Windows."""
+def imread_unicode(path, max_side=MAX_SIDE):
+    """Đọc ảnh (hỗ trợ đường dẫn tiếng Việt trên Windows).
+
+    Ảnh điện thoại 50MP rất nặng: giải mã JPEG ở 1/4 độ phân giải (nhanh
+    hơn nhiều) nếu vẫn lớn hơn max_side, vì ảnh sẽ bị thu nhỏ ngay sau đó.
+    """
 
     data = np.fromfile(path, dtype=np.uint8)
-    return cv2.imdecode(data, cv2.IMREAD_COLOR)
-
+    img = cv2.imdecode(data, cv2.IMREAD_REDUCED_COLOR_4)
+    if img is None or max(img.shape[:2]) < max_side:
+        img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    return img
 
 def imwrite_unicode(path, img):
     ok, buf = cv2.imencode(os.path.splitext(path)[1], img)
@@ -335,7 +343,7 @@ def find_leaf(img):
 # ------------------------------------------------------------
 # 6.1 COLOR: Histogram HSV + Color moments (chỉ trên pixel của lá)
 #     → Tía tô tím, húng quế xanh đậm, mùi tàu xanh nhạt,
-#       rau răm có vệt nâu giữa lá, lá lốt xanh thẫm bóng.
+#       lá lốt xanh thẫm bóng.
 # ------------------------------------------------------------
 
 def color_features(roi, mask):
@@ -393,7 +401,7 @@ def texture_features(gray, mask):
 
 # ------------------------------------------------------------
 # 6.3 SHAPE: hình học + răng cưa + Hu moments + Fourier descriptors
-#     → Lá lốt hình tim (tròn, đặc), rau răm / mùi tàu dài hẹp,
+#     → Lá lốt hình tim (tròn, đặc), mùi tàu dài hẹp,
 #       tía tô / mùi tàu mép răng cưa rõ (nhiều chỗ lõm, chu vi gồ ghề).
 # ------------------------------------------------------------
 
@@ -564,15 +572,77 @@ def extract_features(img, use_roi=True):
 MODES = {"roi": True, "full": False}
 
 
+# ------------------------------------------------------------
+# Biến đổi ảnh (data augmentation)
+#   - Tăng cường dữ liệu huấn luyện: mỗi ảnh TRAIN sinh thêm 5 bản
+#     biến đổi → mô hình học được lá trong nhiều điều kiện chụp hơn.
+#   - Kiểm tra độ bền: áp các biến đổi (với tham số ngẫu nhiên KHÁC)
+#     lên ảnh TEST → mô hình có còn nhận đúng khi ảnh xấu đi không.
+# ------------------------------------------------------------
+
+def aug_blur(img, rng):
+    return cv2.GaussianBlur(img, (0, 0), rng.uniform(1.5, 3.0))
+
+
+def aug_noise(img, rng):
+    noise = rng.normal(0, rng.uniform(10, 20), img.shape)
+    return np.clip(img + noise, 0, 255).astype(np.uint8)
+
+
+def aug_bright(img, rng):
+    return cv2.convertScaleAbs(img, alpha=rng.uniform(1.0, 1.15),
+                               beta=rng.uniform(35, 60))
+
+
+def aug_dark(img, rng):
+    return cv2.convertScaleAbs(img, alpha=rng.uniform(0.45, 0.65), beta=0)
+
+
+def aug_rotate(img, rng):
+    # Lặp lại pixel viền thay vì tô đen góc ảnh → nền vẫn là giấy
+    h, w = img.shape[:2]
+    M = cv2.getRotationMatrix2D((w / 2, h / 2), rng.uniform(15, 345), 1.0)
+    return cv2.warpAffine(img, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
+
+
+AUGMENTS = {
+    "Làm mờ": aug_blur,
+    "Thêm nhiễu": aug_noise,
+    "Làm sáng": aug_bright,
+    "Làm tối": aug_dark,
+    "Xoay": aug_rotate,
+}
+
+
+def extract_set(images, use_roi, transform=None, salt=0, keep_thumbs=False):
+    acc = {g: [] for g in GROUPS + ["orb", "method", "thumb"]}
+    for i, img in enumerate(images):
+        if transform is not None:
+            img = transform(img, np.random.default_rng([SEED, salt, i]))
+        f, roi, info = extract_features(img, use_roi)
+        for g in GROUPS + ["orb"]:
+            acc[g].append(f[g])
+        acc["method"].append(info["method"])
+        if keep_thumbs:
+            acc["thumb"].append(cv2.resize(roi, (96, 48)))
+    for g in GROUPS:
+        acc[g] = np.array(acc[g], dtype=np.float32)
+    return acc
+
+
 def compute_features(images, paths, cache_path, use_cache=True):
-    """Trích đặc trưng cho mọi ảnh ở cả 2 chế độ (có tách lá / cả ảnh).
+    """Trích trước đặc trưng cho mọi ảnh:
+      - "orig": ảnh gốc, ở 2 chế độ (tách lá / cả ảnh)
+      - "aug" : 5 bản biến đổi mỗi ảnh - dùng khi ảnh đó thuộc tập train
+      - "pert": 5 bản biến đổi khác   - dùng khi ảnh đó thuộc tập test
+    Ảnh nào là train / test do cross-validation quyết định sau.
 
     Kết quả được cache lại: lần chạy sau không phải trích lại nếu ảnh
     không thay đổi.
     """
 
-    key = [FEATURE_VERSION] + [(p, os.path.getsize(p), os.path.getmtime(p))
-                               for p in paths]
+    key = [FEATURE_VERSION, list(AUGMENTS)] + [
+        (p, os.path.getsize(p), os.path.getmtime(p)) for p in paths]
     if use_cache and os.path.exists(cache_path):
         try:
             data = joblib.load(cache_path)
@@ -582,26 +652,21 @@ def compute_features(images, paths, cache_path, use_cache=True):
         except Exception:
             pass
 
-    feats = {}
     t0 = time.time()
+    feats = {"orig": {}, "aug": {}, "pert": {}}
     for mode, use_roi in MODES.items():
-        acc = {g: [] for g in GROUPS + ["orb", "method", "thumb"]}
-        for i, img in enumerate(images):
-            f, roi, info = extract_features(img, use_roi)
-            for g in GROUPS + ["orb"]:
-                acc[g].append(f[g])
-            acc["method"].append(info["method"])
-            acc["thumb"].append(cv2.resize(roi, (96, 48)))
-            if (i + 1) % 100 == 0:
-                print(f"    [{mode}] {i + 1}/{len(images)} ảnh")
-        for g in GROUPS:
-            acc[g] = np.array(acc[g], dtype=np.float32)
-        feats[mode] = acc
-    print(f"  Trích đặc trưng xong trong {time.time() - t0:.1f}s")
+        feats["orig"][mode] = extract_set(images, use_roi, keep_thumbs=(mode == "roi"))
+    print(f"    ảnh gốc xong ({time.time() - t0:.0f}s)")
+
+    for k, (kind, fn) in enumerate(AUGMENTS.items()):
+        for part, salt in [("aug", 100 + k), ("pert", 200 + k)]:
+            feats[part][kind] = {mode: extract_set(images, use_roi, fn, salt)
+                                 for mode, use_roi in MODES.items()}
+        print(f"    biến đổi '{kind}' xong ({time.time() - t0:.0f}s)")
+    print(f"  Trích đặc trưng xong trong {time.time() - t0:.0f}s")
 
     joblib.dump({"key": key, "feats": feats}, cache_path, compress=3)
     return feats
-
 
 # ============================================================
 # BƯỚC 7. KẾT HỢP CÁC ĐẶC TRƯNG
@@ -630,12 +695,6 @@ def build_X(feats, groups, idx=None, bovw=None):
         else:
             parts.append(feats[g] if idx is None else feats[g][idx])
     return np.hstack(parts)
-
-
-def fit_bovw(feats, groups, idx):
-    if "orb" not in groups:
-        return None
-    return BoVW().fit([feats["orb"][i] for i in idx])
 
 
 # ============================================================
@@ -682,41 +741,161 @@ def metrics(y_true, y_pred):
     }
 
 
-def tune(X, y, idx_tr, idx_val, clf_name, scaler="standard", use_pca=False):
-    """Chọn siêu tham số bằng tập VALIDATION (đúng vai trò ở bước 9)."""
+# ============================================================
+# BƯỚC 9. CHIA DỮ LIỆU: GROUP K-FOLD CROSS-VALIDATION
+# ============================================================
 
-    best = None
-    for params in ParameterGrid(CLASSIFIERS[clf_name][1]):
-        model = make_model(clf_name, params, scaler, use_pca)
-        model.fit(X[idx_tr], y[idx_tr])
-        f = f1_score(y[idx_val], model.predict(X[idx_val]),
-                     average="macro", zero_division=0)
-        if best is None or f > best["val_f1"]:
-            best = {"val_f1": f, "params": params, "model": model}
+# Mỗi lá được chụp ~10 ảnh liên tiếp (xoay, lật mặt). Nếu chia train/test
+# NGẪU NHIÊN theo ảnh, ảnh của cùng một lá nằm ở cả 2 phía → mô hình chỉ
+# cần "nhớ" chiếc lá là đoán đúng → kết quả cao ảo.
+#
+# → Chia mỗi lớp thành N_FOLDS khối ảnh LIÊN TIẾP theo thứ tự chụp (tên
+#   file đã đánh số theo thứ tự chụp). Fold k = khối k của mọi lớp.
+#   Mỗi lần: 1 khối làm test, các khối còn lại làm train → K lần.
+# → Siêu tham số được chọn bằng CV LỒNG (nested): trong tập train lại
+#   chia theo khối để chọn; khối test của vòng ngoài không được dùng để
+#   chọn → đánh giá không bị lạc quan.
+
+def make_blocks(y):
+    g = np.zeros(len(y), dtype=int)
+    for c in np.unique(y):
+        idx = np.where(y == c)[0]           # đã sắp theo tên file = thứ tự chụp
+        g[idx] = np.arange(len(idx)) * N_FOLDS // len(idx)
+    return g
+
+
+def outer_splits(y, g, random_split=False):
+    if random_split:
+        skf = StratifiedKFold(N_FOLDS, shuffle=True, random_state=SEED)
+        return list(skf.split(np.zeros(len(y)), y))
+    return [(np.where(g != b)[0], np.where(g == b)[0]) for b in range(N_FOLDS)]
+
+
+def inner_splits(y, g, tr, random_split=False):
+    if random_split:
+        k = min(N_FOLDS - 1, np.bincount(y[tr]).min())
+        skf = StratifiedKFold(k, shuffle=True, random_state=SEED)
+        return [(tr[a], tr[b]) for a, b in skf.split(tr, y[tr])]
+    return [(tr[g[tr] != b], tr[g[tr] == b]) for b in np.unique(g[tr])]
+
+
+class Data:
+    """Đặc trưng đã trích + nhãn + khối; dựng ma trận X cho từng tập con.
+
+    Từ điển BoVW (ORB) phụ thuộc vào tập train → được học lại cho từng
+    fold, rồi cache để các bộ phân lớp dùng chung.
+    """
+
+    def __init__(self, feats, y, g):
+        self.feats, self.y, self.g = feats, y, g
+        self._vocab, self._hist = {}, {}
+
+    def source(self, mode, src):
+        if src == "orig":
+            return self.feats["orig"][mode]
+        part, kind = src.split(":", 1)
+        return self.feats[part][kind][mode]
+
+    def vocab(self, mode, tr, use_aug=False):
+        key = (mode, tr.tobytes(), use_aug)
+        if key not in self._vocab:
+            desc = [self.feats["orig"][mode]["orb"][i] for i in tr]
+            if use_aug:
+                for kind in AUGMENTS:
+                    desc += [self.feats["aug"][kind][mode]["orb"][i] for i in tr]
+            self._vocab[key] = BoVW().fit(desc)
+        return key
+
+    def hist(self, vkey, src):
+        if (vkey, src) not in self._hist:
+            self._hist[(vkey, src)] = self._vocab[vkey].transform(
+                self.source(vkey[0], src)["orb"])
+        return self._hist[(vkey, src)]
+
+    def X(self, mode, groups, rows, src="orig", vkey=None):
+        F = self.source(mode, src)
+        return np.hstack([self.hist(vkey, src)[rows] if gr == "orb" else F[gr][rows]
+                          for gr in groups])
+
+    def dim(self, groups):
+        F = self.feats["orig"]["roi"]
+        return sum(100 if gr == "orb" else F[gr].shape[1] for gr in groups)
+
+
+def fit_model(D, cfg, groups, params, tr, use_aug=False):
+    mode = cfg["mode"]
+    vkey = D.vocab(mode, tr, use_aug) if "orb" in groups else None
+    X, y = [D.X(mode, groups, tr, "orig", vkey)], [D.y[tr]]
+    if use_aug:
+        for kind in AUGMENTS:
+            X.append(D.X(mode, groups, tr, f"aug:{kind}", vkey))
+            y.append(D.y[tr])
+    model = make_model(cfg["clf"], params, cfg["scaler"], cfg["pca"])
+    model.fit(np.vstack(X), np.concatenate(y))
+    return model, vkey
+
+
+def inner_tune(D, cfg, groups, tr, random_split=False):
+    """Chọn siêu tham số bằng CV bên trong tập train (vòng trong)."""
+
+    grid = list(ParameterGrid(CLASSIFIERS[cfg["clf"]][1]))
+    if len(grid) == 1:
+        return grid[0]
+
+    mode, splits = cfg["mode"], []
+    for a, b in inner_splits(D.y, D.g, tr, random_split):
+        vkey = D.vocab(mode, a) if "orb" in groups else None
+        splits.append((D.X(mode, groups, a, "orig", vkey), D.y[a],
+                       D.X(mode, groups, b, "orig", vkey), D.y[b]))
+
+    best, best_f = None, -1.0
+    for params in grid:
+        scores = []
+        for Xa, ya, Xb, yb in splits:
+            model = make_model(cfg["clf"], params, cfg["scaler"], cfg["pca"])
+            pred = model.fit(Xa, ya).predict(Xb)
+            scores.append(f1_score(yb, pred, average="macro", zero_division=0))
+        if np.mean(scores) > best_f:
+            best, best_f = params, float(np.mean(scores))
     return best
 
 
-def cv_f1(feats, groups, y, idx, cfg, params, n_splits=5):
-    """K-fold CV; từ điển BoVW được học lại trong từng fold."""
+def run_cv(D, cfg, groups, random_split=False, use_aug=False, perturb=False):
+    """Cross-validation vòng ngoài.
 
-    n_splits = min(n_splits, np.bincount(y[idx]).min())
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=SEED)
-    scores = []
-    for tr, te in skf.split(idx, y[idx]):
-        i_tr, i_te = idx[tr], idx[te]
-        bovw = fit_bovw(feats, groups, i_tr)
-        model = make_model(cfg["clf"], params, cfg["scaler"], cfg["pca"])
-        model.fit(build_X(feats, groups, i_tr, bovw), y[i_tr])
-        pred = model.predict(build_X(feats, groups, i_te, bovw))
-        scores.append(f1_score(y[i_te], pred, average="macro", zero_division=0))
-    return float(np.mean(scores)), float(np.std(scores))
+    Trả về F1 từng fold và dự đoán out-of-fold: mỗi ảnh được dự đoán bởi
+    mô hình KHÔNG được học trên khối chứa ảnh đó.
+    """
+
+    y = D.y
+    res = {"f1s": [], "params": [], "oof": np.full(len(y), -1),
+           "pert": {k: np.full(len(y), -1) for k in AUGMENTS} if perturb else {}}
+    for tr, te in outer_splits(y, D.g, random_split):
+        params = inner_tune(D, cfg, groups, tr, random_split)
+        model, vkey = fit_model(D, cfg, groups, params, tr, use_aug)
+        pred = model.predict(D.X(cfg["mode"], groups, te, "orig", vkey))
+        res["oof"][te] = pred
+        res["f1s"].append(f1_score(y[te], pred, average="macro", zero_division=0))
+        res["params"].append(params)
+        for kind in res["pert"]:
+            res["pert"][kind][te] = model.predict(
+                D.X(cfg["mode"], groups, te, f"pert:{kind}", vkey))
+    res["mean"], res["std"] = float(np.mean(res["f1s"])), float(np.std(res["f1s"]))
+    return res
 
 
-def final_fit(feats, groups, y, idx, cfg):
-    bovw = fit_bovw(feats, groups, idx)
-    model = make_model(cfg["clf"], cfg["params"], cfg["scaler"], cfg["pca"])
-    model.fit(build_X(feats, groups, idx, bovw), y[idx])
-    return model, bovw
+def common_params(res):
+    """Bộ tham số được vòng trong chọn nhiều nhất qua các fold."""
+
+    texts = [str(p) for p in res["params"]]
+    return max(set(texts), key=texts.count)
+
+
+def make_bundle(D, cfg, groups, model, vkey, classes):
+    return {"classes": classes, "names": names(classes), "mode": cfg["mode"],
+            "groups": groups, "model": model,
+            "kmeans": D._vocab[vkey].kmeans if vkey else None,
+            "config": cfg, "feature_version": FEATURE_VERSION}
 
 
 # ============================================================
@@ -765,14 +944,13 @@ def savefig(fig, path):
     print(f"  → Đã lưu {rel(path)}")
 
 
-def plot_counts(classes, labels, hard_labels, out):
-    fig = plt.figure("Bước 2 - Số ảnh mỗi lớp", figsize=(8, 4))
+def plot_counts(classes, labels, out):
+    fig = plt.figure("Bước 2 - Số ảnh mỗi lớp", figsize=(7, 4))
     x = np.arange(len(classes))
-    plt.bar(x - 0.2, np.bincount(labels, minlength=len(classes)), 0.4,
-            label="dataset (train/val/test)")
-    if hard_labels is not None and len(hard_labels):
-        plt.bar(x + 0.2, np.bincount(hard_labels, minlength=len(classes)), 0.4,
-                label="dataset_hard")
+    counts = np.bincount(labels, minlength=len(classes))
+    plt.bar(x, counts, 0.6, color="seagreen")
+    for i, c in enumerate(counts):
+        plt.text(i, c + 0.5, str(c), ha="center")
     plt.axhline(MIN_PER_CLASS, color="red", ls="--", lw=1,
                 label=f"khuyến nghị ≥ {MIN_PER_CLASS}")
     plt.xticks(x, names(classes))
@@ -780,7 +958,6 @@ def plot_counts(classes, labels, hard_labels, out):
     plt.title("Phân bố số ảnh theo loại rau")
     plt.legend()
     savefig(fig, out)
-
 
 def plot_roi_demo(images, labels, classes, out):
     rows = [np.where(labels == c)[0][0] for c in range(len(classes))]
@@ -869,21 +1046,20 @@ def plot_feature_demo(img, title, out):
     savefig(fig, out)
 
 
-def plot_heatmaps(s1, fs_names, clf_names, out):
-    fig, axes = plt.subplots(1, 2, figsize=(15, 5.5), num="Kịch bản 1")
-    for ax, key, title in [(axes[0], "val_f1", "F1 trên VALIDATION (dùng để chọn)"),
-                           (axes[1], "test_f1", "F1 trên TEST (tham khảo)")]:
-        M = np.array([[s1[(fs, c)][key] for c in clf_names] for fs in fs_names])
-        im = ax.imshow(M, cmap="YlGn", vmin=0, vmax=1)
-        ax.set_xticks(range(len(clf_names)), clf_names, rotation=25, ha="right")
-        ax.set_yticks(range(len(fs_names)), fs_names)
-        for i in range(len(fs_names)):
-            for j in range(len(clf_names)):
-                ax.text(j, i, f"{M[i, j]:.2f}", ha="center", va="center", fontsize=8)
-        ax.set_title(title)
-    fig.colorbar(im, ax=axes, shrink=0.8)
+def plot_heatmap(s1, fs_names, clf_names, out):
+    M = np.array([[s1[(fs, c)]["mean"] for c in clf_names] for fs in fs_names])
+    S = np.array([[s1[(fs, c)]["std"] for c in clf_names] for fs in fs_names])
+    fig, ax = plt.subplots(figsize=(10, 6.5), num="Kịch bản 1")
+    im = ax.imshow(M, cmap="YlGn", vmin=0, vmax=1)
+    ax.set_xticks(range(len(clf_names)), clf_names, rotation=25, ha="right")
+    ax.set_yticks(range(len(fs_names)), fs_names)
+    for i in range(len(fs_names)):
+        for j in range(len(clf_names)):
+            ax.text(j, i, f"{M[i, j]:.2f}\n±{S[i, j]:.2f}", ha="center",
+                    va="center", fontsize=7)
+    ax.set_title(f"F1 (macro) - Group {N_FOLDS}-fold CV theo khối ảnh")
+    fig.colorbar(im, ax=ax, shrink=0.8)
     savefig(fig, out)
-
 
 def plot_confusion(y_true, y_pred, classes, title, out):
     fig, ax = plt.subplots(figsize=(6.5, 5.5), num=title)
@@ -913,29 +1089,47 @@ def plot_predictions(images, idx, y_true, y_pred, classes, title, out, cols=4):
     savefig(fig, out)
 
 
-def plot_hard_compare(rows, out):
-    labels = [r[0] for r in rows]
-    x = np.arange(len(labels))
-    fig = plt.figure("Kịch bản 5", figsize=(10, 4.5))
-    plt.bar(x - 0.2, [r[1] for r in rows], 0.4, label="Test thường")
-    plt.bar(x + 0.2, [r[2] for r in rows], 0.4, label="Test khó (dataset_hard)")
-    plt.xticks(x, labels, rotation=20, ha="right")
-    plt.ylabel("F1-score (macro)")
-    plt.ylim(0, 1.05)
-    plt.title("Khả năng tổng quát hóa: test thường vs test khó")
-    plt.legend()
+def plot_augment_demo(img, out):
+    variants = [("Ảnh gốc", img)] + [
+        (k, fn(img, np.random.default_rng(SEED))) for k, fn in AUGMENTS.items()]
+    fig, axes = plt.subplots(2, len(variants), figsize=(3 * len(variants), 5),
+                             num="Biến đổi ảnh")
+    for c, (title, im) in enumerate(variants):
+        roi, _, info = find_leaf(im)
+        axes[0, c].imshow(rgb(im))
+        axes[0, c].set_title(title)
+        axes[1, c].imshow(rgb(roi))
+        axes[1, c].set_title(f"Lá tách được ({info['method']})", fontsize=9)
+        axes[0, c].axis("off")
+        axes[1, c].axis("off")
     fig.tight_layout()
     savefig(fig, out)
 
+
+def plot_bars(labels, series, title, out, num):
+    """series: [(tên, giá trị, sai số hoặc None), ...]"""
+
+    x = np.arange(len(labels))
+    w = 0.8 / len(series)
+    fig = plt.figure(num, figsize=(10, 4.5))
+    for k, (name, vals, errs) in enumerate(series):
+        plt.bar(x + (k - (len(series) - 1) / 2) * w, vals, w, yerr=errs,
+                capsize=3, label=name)
+    plt.xticks(x, labels, rotation=20, ha="right")
+    plt.ylabel("F1-score (macro)")
+    plt.ylim(0, 1.05)
+    plt.title(title)
+    plt.legend()
+    fig.tight_layout()
+    savefig(fig, out)
 
 # ============================================================
 # CHƯƠNG TRÌNH CHÍNH
 # ============================================================
 
 def main():
-    ap = argparse.ArgumentParser(description="Nhận dạng 5 loại rau thơm - 12 bước")
+    ap = argparse.ArgumentParser(description="Nhận dạng 4 loại rau thơm - 12 bước")
     ap.add_argument("--dataset", default=DEFAULT_DATASET)
-    ap.add_argument("--hard", default=DEFAULT_HARD)
     ap.add_argument("--results", default=RESULTS_DIR)
     ap.add_argument("--show", action="store_true", help="hiện cửa sổ biểu đồ")
     ap.add_argument("--no-cache", action="store_true", help="trích lại đặc trưng")
@@ -952,18 +1146,18 @@ def main():
     os.makedirs(out, exist_ok=True)
     sys.stdout = Tee(os.path.join(out, "log.txt"))
     P = lambda name: os.path.join(out, name)
+    t_start = time.time()
 
     # ------------------------------------------------------------
     section("BƯỚC 1 - XÁC ĐỊNH BÀI TOÁN VÀ LỚP ĐỐI TƯỢNG")
     # ------------------------------------------------------------
-    print("""  Đối tượng    : lá của 5 loại rau thơm phổ biến ở chợ Việt Nam
-  Số lớp       : 5 - phân loại ĐA LỚP
-      hung_que = Húng quế : lá bầu dục nhọn, xanh đậm, bóng, thân tím
+    print("""  Đối tượng    : lá của 4 loại rau thơm phổ biến ở chợ Việt Nam
+  Số lớp       : 4 - phân loại ĐA LỚP
+      hung_que = Húng quế : lá bầu dục nhọn, xanh đậm, bóng
       tia_to   = Tía tô   : lá tròn hơn, mép răng cưa, mặt dưới tím
-      rau_ram  = Rau răm  : lá dài hẹp (mũi mác), có vệt nâu giữa lá
       mui_tau  = Mùi tàu  : lá dài thuôn, mép răng cưa có gai, xanh nhạt
       la_lot   = Lá lốt   : lá hình tim, to, bóng, gân nổi rõ
-  Cặp dễ nhầm  : Húng quế ↔ Tía tô (dáng lá), Rau răm ↔ Mùi tàu (đều dài)
+  Cặp dễ nhầm  : Húng quế ↔ Tía tô (mặt trên tía tô cũng xanh, dáng bầu dục)
   Đầu vào      : ảnh đơn chụp bằng điện thoại, MỘT lá trên nền giấy trắng
   Loại bài toán: CLASSIFICATION (vị trí lá chỉ dùng để tách ROI ở bước 5)
   Ứng dụng     : cân tự tính tiền ở siêu thị, app hỗ trợ người đi chợ""")
@@ -983,30 +1177,21 @@ def main():
     if len(classes) < 2:
         for c in CLASSES:
             os.makedirs(os.path.join(args.dataset, c), exist_ok=True)
-            os.makedirs(os.path.join(args.hard, c), exist_ok=True)
         print(f"""
   Chưa đủ dữ liệu (cần ít nhất 2 lớp, mỗi lớp ≥ {MIN_TO_USE} ảnh).
-  Đã tạo sẵn thư mục cho từng lớp:
-    {args.dataset}{os.sep}<lớp>
-    {args.hard}{os.sep}<lớp>
-  Chép ảnh vào rồi chạy lại.""")
+  Chép ảnh vào {args.dataset}{os.sep}<lớp> rồi chạy lại.""")
         return
-
     for c in CLASSES:
         if c not in classes:
             print(f"  [!] Lớp {c} có {counts[c]} ảnh (< {MIN_TO_USE}) → tạm bỏ qua")
         elif counts[c] < MIN_PER_CLASS:
             print(f"  [!] Lớp {c} mới có {counts[c]} ảnh, nên có ≥ {MIN_PER_CLASS}")
 
+    t0 = time.time()
     images, y, paths = load_images(files, classes)
-    n_cls = np.bincount(y, minlength=len(classes))
-    if n_cls.max() > 1.5 * n_cls.min():
-        print(f"  [!] Dữ liệu lệch lớp: ít nhất {n_cls.min()}, nhiều nhất {n_cls.max()}")
-
-    hard_files, _ = list_images(args.hard, classes)
-    h_images, h_y, h_paths = load_images(hard_files, classes)
-    print(f"  Bộ chính: {len(images)} ảnh | Bộ test khó: {len(h_images)} ảnh")
-    plot_counts(classes, y, h_y, P("buoc02_so_anh.png"))
+    print(f"  Đọc {len(images)} ảnh trong {time.time() - t0:.0f}s "
+          f"(giải mã ở 1/4 độ phân giải, thu nhỏ về cạnh dài {MAX_SIDE}px)")
+    plot_counts(classes, y, P("buoc02_so_anh.png"))
 
     # ------------------------------------------------------------
     section("BƯỚC 3 - GÁN NHÃN DỮ LIỆU")
@@ -1014,44 +1199,50 @@ def main():
     print("  Nhãn lấy theo tên thư mục, mã hóa thành số:")
     for i, c in enumerate(classes):
         print(f"    {c:9s} ({CLASS_NAMES[c]}) = {i}")
-    save_csv(P("buoc03_nhan.csv"), ["anh", "nhan", "ma_nhan", "bo_du_lieu"],
-             [[rel(p), classes[l], l, "dataset"] for p, l in zip(paths, y)] +
-             [[rel(p), classes[l], l, "dataset_hard"] for p, l in zip(h_paths, h_y)])
-    print("  → Đã lưu buoc03_nhan.csv (mở bằng Excel để kiểm tra nhãn)")
+
+    g = make_blocks(y)
+    print(f"\n  Mỗi lớp được chia thành {N_FOLDS} khối ảnh liên tiếp theo thứ tự chụp"
+          f" (dùng cho bước 9):")
+    for i, c in enumerate(classes):
+        parts = []
+        for b in range(N_FOLDS):
+            idx = np.where((y == i) & (g == b))[0]
+            n0 = os.path.splitext(os.path.basename(paths[idx[0]]))[0].split("_")[-1]
+            n1 = os.path.splitext(os.path.basename(paths[idx[-1]]))[0].split("_")[-1]
+            parts.append(f"K{b + 1}: {n0}-{n1}")
+        print(f"    {c:9s} " + "  ".join(parts))
+    save_csv(P("buoc03_nhan.csv"), ["anh", "nhan", "ma_nhan", "khoi"],
+             [[rel(p), classes[l], l, b + 1] for p, l, b in zip(paths, y, g)])
+    print("  → Đã lưu buoc03_nhan.csv")
 
     # ------------------------------------------------------------
     section("BƯỚC 4, 5 - TIỀN XỬ LÝ VÀ TÁCH LÁ (ROI)")
     # ------------------------------------------------------------
     plot_roi_demo(images, y, classes, P("buoc04_05_tien_xu_ly_roi.png"))
-
     feats = compute_features(images, paths, P("cache_dataset.joblib"),
                              not args.no_cache)
-    h_feats = (compute_features(h_images, h_paths, P("cache_hard.joblib"),
-                                not args.no_cache) if h_images else None)
 
-    methods = np.array(feats["roi"]["method"])
+    methods = np.array(feats["orig"]["roi"]["method"])
     print("\n  Kết quả tách lá (tach_la = tách được, toan_anh = không tách được):")
     for i, c in enumerate(classes):
         m = methods[y == i]
         print(f"    {c:9s} tach_la = {np.sum(m == 'tach_la'):4d}   "
               f"toan_anh = {np.sum(m == 'toan_anh'):4d}")
-    save_roi_montages(feats["roi"]["thumb"], methods, y, classes, P("roi"))
-    if h_feats is not None:
-        h_methods = np.array(h_feats["roi"]["method"])
-        print(f"  Bộ test khó: tach_la = {np.sum(h_methods == 'tach_la')}, "
-              f"toan_anh = {np.sum(h_methods == 'toan_anh')}")
-        save_roi_montages(h_feats["roi"]["thumb"], h_methods, h_y, classes,
-                          P("roi_hard"))
+    save_roi_montages(feats["orig"]["roi"]["thumb"], methods, y, classes, P("roi"))
+    print("  Tách lá trên ảnh đã bị biến đổi:")
+    for kind in AUGMENTS:
+        m = np.array(feats["pert"][kind]["roi"]["method"])
+        print(f"    {kind:11s}: {np.sum(m == 'tach_la')}/{len(m)} ảnh tách được lá")
 
     # ------------------------------------------------------------
     section("BƯỚC 6, 7 - TRÍCH CHỌN VÀ KẾT HỢP ĐẶC TRƯNG")
     # ------------------------------------------------------------
-    n_orb = [len(d) for d in feats["roi"]["orb"]]
-    print(f"  Color   : {feats['roi']['color'].shape[1]} chiều (HSV hist + moments)")
-    print(f"  Texture : {feats['roi']['texture'].shape[1]} chiều (LBP x2 + GLCM)")
-    print(f"  Shape   : {feats['roi']['shape'].shape[1]} chiều (hình học + răng cưa"
-          f" + Hu + Fourier)")
-    print(f"  HOG     : {feats['roi']['hog'].shape[1]} chiều")
+    F = feats["orig"]["roi"]
+    n_orb = [len(d) for d in F["orb"]]
+    print(f"  Color   : {F['color'].shape[1]} chiều (HSV hist + moments)")
+    print(f"  Texture : {F['texture'].shape[1]} chiều (LBP x2 + GLCM)")
+    print(f"  Shape   : {F['shape'].shape[1]} chiều (hình học + răng cưa + Hu + Fourier)")
+    print(f"  HOG     : {F['hog'].shape[1]} chiều")
     print(f"  ORB     : trung bình {np.mean(n_orb):.0f} điểm/ảnh → BoVW 100 chiều")
     print(f"\n  Các tổ hợp đặc trưng thử nghiệm: {', '.join(FEATURE_SETS)}")
     for c in range(len(classes)):
@@ -1060,89 +1251,66 @@ def main():
                           P(f"buoc06_dac_trung_{classes[c]}.png"))
         if not args.show:
             plt.close("all")
+    plot_augment_demo(images[np.where(y == 0)[0][0]], P("buoc06_bien_doi_anh.png"))
 
     # ------------------------------------------------------------
-    section("BƯỚC 9 - CHIA TẬP DỮ LIỆU (70% / 15% / 15%, stratify)")
+    section(f"BƯỚC 9 - CHIA DỮ LIỆU: GROUP {N_FOLDS}-FOLD CROSS-VALIDATION")
     # ------------------------------------------------------------
-    all_idx = np.arange(len(y))
-    idx_trval, idx_test = train_test_split(all_idx, test_size=0.15,
-                                           stratify=y, random_state=SEED)
-    idx_tr, idx_val = train_test_split(idx_trval, test_size=0.15 / 0.85,
-                                       stratify=y[idx_trval], random_state=SEED)
-    print(f"  Train: {len(idx_tr)} | Validation: {len(idx_val)} | Test: {len(idx_test)}"
-          f" | Test khó: {len(h_y)}")
-    print("  Validation dùng để chọn đặc trưng, bộ phân lớp, siêu tham số;")
-    print("  Test chỉ dùng để báo cáo, không dùng để chọn.")
+    D = Data(feats, y, g)
+    print(f"""  Mỗi lá được chụp ~10 ảnh liên tiếp. Chia NGẪU NHIÊN theo ảnh sẽ để ảnh
+  của cùng một lá ở cả train và test → mô hình "nhớ lá" → kết quả cao ảo.
+  → Fold k: test = khối k của mọi lớp, train = {N_FOLDS - 1} khối còn lại.
+  → Siêu tham số chọn bằng CV lồng bên trong tập train (theo khối).
+  → Kết quả báo cáo = trung bình ± độ lệch chuẩn F1 (macro) qua {N_FOLDS} fold.""")
+    for b, (tr, te) in enumerate(outer_splits(y, g)):
+        print(f"    Fold {b + 1}: train = {len(tr):3d} ảnh, test = {len(te):3d} ảnh "
+              f"({', '.join(str(n) for n in np.bincount(y[te], minlength=len(classes)))})")
 
     # ------------------------------------------------------------
-    section("BƯỚC 10 - HUẤN LUYỆN: KỊCH BẢN 1 - ĐẶC TRƯNG x BỘ PHÂN LỚP")
+    section("BƯỚC 10 - KỊCH BẢN 1 - ĐẶC TRƯNG x BỘ PHÂN LỚP")
     # ------------------------------------------------------------
     fs_names, clf_names = list(FEATURE_SETS), list(CLASSIFIERS)
-    F = feats["roi"]
-    bovw_tr = BoVW().fit([F["orb"][i] for i in idx_tr])
-
+    base = {"mode": "roi", "scaler": "standard", "pca": False}
     print(f"  {'Đặc trưng':20s} {'Bộ phân lớp':20s} {'Chiều':>6s} "
-          f"{'Val F1':>7s} {'Test F1':>8s}  Tham số")
+          f"{'F1 (TB ± std)':>15s}  Tham số chọn nhiều nhất")
     s1 = {}
     for fs in fs_names:
-        X = build_X(F, FEATURE_SETS[fs], None, bovw_tr)
         for clf in clf_names:
-            r = tune(X, y, idx_tr, idx_val, clf)
-            r["test"] = metrics(y[idx_test], r["model"].predict(X[idx_test]))
-            r["test_f1"] = r["test"]["f1"]
-            r["dim"] = X.shape[1]
+            r = run_cv(D, dict(base, clf=clf), FEATURE_SETS[fs])
+            r["dim"] = D.dim(FEATURE_SETS[fs])
             s1[(fs, clf)] = r
-            print(f"  {fs:20s} {clf:20s} {X.shape[1]:6d} {r['val_f1']:7.3f} "
-                  f"{r['test_f1']:8.3f}  {r['params']}")
+            print(f"  {fs:20s} {clf:20s} {r['dim']:6d} {r['mean']:8.3f} ± "
+                  f"{r['std']:.3f}  {common_params(r)}")
     save_csv(P("kich_ban1_dac_trung_x_phan_lop.csv"),
-             ["dac_trung", "bo_phan_lop", "so_chieu", "val_f1", "test_acc",
-              "test_f1", "tham_so"],
-             [[fs, c, s1[(fs, c)]["dim"], round(s1[(fs, c)]["val_f1"], 4),
-               round(s1[(fs, c)]["test"]["acc"], 4), round(s1[(fs, c)]["test_f1"], 4),
-               s1[(fs, c)]["params"]] for fs in fs_names for c in clf_names])
-    plot_heatmaps(s1, fs_names, clf_names, P("kich_ban1_heatmap.png"))
+             ["dac_trung", "bo_phan_lop", "so_chieu", "f1_tb", "f1_std",
+              "f1_tung_fold", "tham_so"],
+             [[fs, c, s1[(fs, c)]["dim"], round(s1[(fs, c)]["mean"], 4),
+               round(s1[(fs, c)]["std"], 4),
+               " ".join(f"{v:.3f}" for v in s1[(fs, c)]["f1s"]),
+               common_params(s1[(fs, c)])] for fs in fs_names for c in clf_names])
+    plot_heatmap(s1, fs_names, clf_names, P("kich_ban1_heatmap.png"))
 
-    # Validation nhỏ nên nhiều cấu hình có thể bằng điểm nhau → phá hòa
-    # bằng 5-fold CV trên train+val (ổn định hơn một lần chia duy nhất).
-    top = max(r["val_f1"] for r in s1.values())
-    ties = [k for k in s1 if s1[k]["val_f1"] >= top - 1e-9]
-    if len(ties) > 1:
-        print(f"\n  Có {len(ties)} cấu hình cùng val F1 = {top:.3f} → phá hòa bằng "
-              f"5-fold CV trên train+val:")
-        for k in ties:
-            cfg_k = {"clf": k[1], "scaler": "standard", "pca": False}
-            m, s = cv_f1(F, FEATURE_SETS[k[0]], y, idx_trval, cfg_k, s1[k]["params"])
-            s1[k]["cv"] = (m, s)
-            print(f"    {k[0]:20s} {k[1]:20s} CV F1 = {m:.3f} ± {s:.3f}")
-        best_fs, best_clf = max(ties, key=lambda k: (s1[k]["cv"][0], -s1[k]["cv"][1],
-                                                     -s1[k]["dim"]))
-    else:
-        best_fs, best_clf = ties[0]
+    best_fs, best_clf = max(s1, key=lambda k: (round(s1[k]["mean"], 4),
+                                               -s1[k]["std"], -s1[k]["dim"]))
     groups = FEATURE_SETS[best_fs]
     print(f"\n  ⇒ Tốt nhất: {best_fs} + {best_clf} "
-          f"(val F1 = {s1[(best_fs, best_clf)]['val_f1']:.3f})")
+          f"(F1 = {s1[(best_fs, best_clf)]['mean']:.3f} ± {s1[(best_fs, best_clf)]['std']:.3f})")
 
     # ------------------------------------------------------------
     section("BƯỚC 8 - KỊCH BẢN 2 - CHUẨN HÓA VÀ GIẢM CHIỀU")
     # ------------------------------------------------------------
-    X = build_X(F, groups, None, bovw_tr)
-    s2 = {}
     print(f"  ({best_fs} + {best_clf})")
-    print(f"  {'Cách chuẩn hóa':22s} {'Chiều sau':>9s} {'Val F1':>7s} {'Test F1':>8s}")
+    s2 = {}
     for scaler, use_pca, name in [("standard", False, "Standardization"),
                                   ("none", False, "Không chuẩn hóa"),
                                   ("minmax", False, "Min-Max"),
                                   ("standard", True, "Standard + PCA 95%")]:
-        r = tune(X, y, idx_tr, idx_val, best_clf, scaler, use_pca)
-        r["test_f1"] = f1_score(y[idx_test], r["model"].predict(X[idx_test]),
-                                average="macro", zero_division=0)
-        dim = (r["model"].named_steps["pca"].n_components_ if use_pca else X.shape[1])
-        s2[name] = dict(r, scaler=scaler, pca=use_pca, dim=dim)
-        print(f"  {name:22s} {dim:9d} {r['val_f1']:7.3f} {r['test_f1']:8.3f}")
-    save_csv(P("kich_ban2_chuan_hoa.csv"), ["cach", "so_chieu", "val_f1", "test_f1"],
-             [[n, r["dim"], round(r["val_f1"], 4), round(r["test_f1"], 4)]
-              for n, r in s2.items()])
-    best_norm = max(s2, key=lambda k: s2[k]["val_f1"])
+        cfg = {"mode": "roi", "clf": best_clf, "scaler": scaler, "pca": use_pca}
+        s2[name] = dict(run_cv(D, cfg, groups), cfg=cfg)
+        print(f"  {name:22s} F1 = {s2[name]['mean']:.3f} ± {s2[name]['std']:.3f}")
+    save_csv(P("kich_ban2_chuan_hoa.csv"), ["cach", "f1_tb", "f1_std"],
+             [[n, round(r["mean"], 4), round(r["std"], 4)] for n, r in s2.items()])
+    best_norm = max(s2, key=lambda k: round(s2[k]["mean"], 4))
     print(f"\n  ⇒ Chọn: {best_norm}")
 
     # ------------------------------------------------------------
@@ -1150,145 +1318,143 @@ def main():
     # ------------------------------------------------------------
     s3 = {}
     for mode, name in [("roi", "Tách lá + xoay chuẩn"), ("full", "Cả ảnh (không tách)")]:
-        Fm = feats[mode]
-        bovw_m = fit_bovw(Fm, groups, idx_tr)
-        Xm = build_X(Fm, groups, None, bovw_m)
-        r = tune(Xm, y, idx_tr, idx_val, best_clf,
-                 s2[best_norm]["scaler"], s2[best_norm]["pca"])
-        r["test_f1"] = f1_score(y[idx_test], r["model"].predict(Xm[idx_test]),
-                                average="macro", zero_division=0)
-        s3[mode] = dict(r, name=name)
-        print(f"  {name:24s} Val F1 = {r['val_f1']:.3f}   Test F1 = {r['test_f1']:.3f}")
+        cfg = dict(s2[best_norm]["cfg"], mode=mode)
+        s3[mode] = dict(run_cv(D, cfg, groups), name=name)
+        print(f"  {name:24s} F1 = {s3[mode]['mean']:.3f} ± {s3[mode]['std']:.3f}")
     print("  (Khi dùng cả ảnh, đặc trưng Shape không có ý nghĩa vì mask là cả khung.)")
-    save_csv(P("kich_ban3_roi.csv"), ["che_do", "val_f1", "test_f1"],
-             [[r["name"], round(r["val_f1"], 4), round(r["test_f1"], 4)]
-              for r in s3.values()])
-    best_mode = max(s3, key=lambda k: s3[k]["val_f1"])
-
-    cfg = {"mode": best_mode, "features": best_fs, "clf": best_clf,
-           "params": s3[best_mode]["params"], "scaler": s2[best_norm]["scaler"],
-           "pca": s2[best_norm]["pca"]}
-    print(f"\n  ⇒ Cấu hình cuối: {cfg}")
-    Fm = feats[cfg["mode"]]
+    save_csv(P("kich_ban3_roi.csv"), ["che_do", "f1_tb", "f1_std"],
+             [[r["name"], round(r["mean"], 4), round(r["std"], 4)] for r in s3.values()])
+    best_mode = max(s3, key=lambda k: round(s3[k]["mean"], 4))
+    cfg = dict(s2[best_norm]["cfg"], mode=best_mode)
+    print(f"\n  ⇒ Cấu hình: {best_fs} | {cfg}")
 
     # ------------------------------------------------------------
-    section("BƯỚC 9 - KỊCH BẢN 4 - CÁC CÁCH CHIA DỮ LIỆU")
+    section("BƯỚC 9 - KỊCH BẢN 4 - CHIA NGẪU NHIÊN vs CHIA THEO KHỐI ẢNH")
     # ------------------------------------------------------------
-    s4 = [["70/15/15 (chọn tham số bằng validation)", s3[best_mode]["test_f1"], ""]]
-
-    idx80, idx20 = train_test_split(all_idx, test_size=0.2, stratify=y,
-                                    random_state=SEED)
-    best_p, best_cv = None, -1
-    for params in ParameterGrid(CLASSIFIERS[cfg["clf"]][1]):
-        m, _ = cv_f1(Fm, groups, y, idx80, cfg, params)
-        if m > best_cv:
-            best_cv, best_p = m, params
-    model80, bovw80 = final_fit(Fm, groups, y, idx80, dict(cfg, params=best_p))
-    f80 = f1_score(y[idx20], model80.predict(build_X(Fm, groups, idx20, bovw80)),
-                   average="macro", zero_division=0)
-    s4.append(["80/20 (chọn tham số bằng 5-fold CV trên 80%)", f80,
-               f"CV F1 = {best_cv:.3f}, {best_p}"])
-
-    m, s = cv_f1(Fm, groups, y, all_idx, cfg, cfg["params"])
-    s4.append(["5-fold CV trên toàn bộ dữ liệu", m, f"± {s:.3f}"])
-
-    for name, f, note in s4:
-        print(f"  {name:48s} F1 = {f:.3f}  {note}")
-    save_csv(P("kich_ban4_chia_du_lieu.csv"), ["cach_chia", "f1", "ghi_chu"],
-             [[n, round(f, 4), note] for n, f, note in s4])
+    print("  Cùng đặc trưng / chuẩn hóa, so sánh 2 cách chia 5-fold:")
+    print(f"  {'Bộ phân lớp':20s} {'Ngẫu nhiên':>14s} {'Theo khối':>14s} {'Chênh':>7s}")
+    s4 = []
+    for clf in clf_names:
+        c = dict(cfg, clf=clf)
+        r_rand = run_cv(D, c, groups, random_split=True)
+        r_grp = run_cv(D, c, groups)
+        s4.append([clf, r_rand, r_grp])
+        print(f"  {clf:20s} {r_rand['mean']:7.3f} ± {r_rand['std']:.3f} "
+              f"{r_grp['mean']:7.3f} ± {r_grp['std']:.3f} "
+              f"{r_rand['mean'] - r_grp['mean']:+7.3f}")
+    print("  Chênh dương = chia ngẫu nhiên cho kết quả cao hơn thực tế (mô hình 'nhớ lá').")
+    save_csv(P("kich_ban4_ngau_nhien_vs_khoi.csv"),
+             ["bo_phan_lop", "ngau_nhien_tb", "ngau_nhien_std", "theo_khoi_tb",
+              "theo_khoi_std"],
+             [[c, round(a["mean"], 4), round(a["std"], 4), round(b["mean"], 4),
+               round(b["std"], 4)] for c, a, b in s4])
+    plot_bars(clf_names,
+              [("Chia ngẫu nhiên theo ảnh", [a["mean"] for _, a, _ in s4],
+                [a["std"] for _, a, _ in s4]),
+               ("Chia theo khối ảnh (group)", [b["mean"] for _, _, b in s4],
+                [b["std"] for _, _, b in s4])],
+              "Rò rỉ dữ liệu: chia ngẫu nhiên vs chia theo khối", P("kich_ban4.png"),
+              "Kịch bản 4")
 
     # ------------------------------------------------------------
-    section("BƯỚC 10 - HUẤN LUYỆN MÔ HÌNH CUỐI (train + validation)")
+    section("KỊCH BẢN 5 - TĂNG CƯỜNG DỮ LIỆU VÀ ĐỘ BỀN VỚI BIẾN ĐỔI ẢNH")
     # ------------------------------------------------------------
-    model, bovw = final_fit(Fm, groups, y, idx_trval, cfg)
-    bundle = {"classes": classes, "names": names(classes), "mode": cfg["mode"],
-              "groups": groups, "model": model,
-              "kmeans": bovw.kmeans if bovw else None,
-              "config": cfg, "feature_version": FEATURE_VERSION}
-    joblib.dump(bundle, P("model.joblib"))
-    print(f"  Huấn luyện trên {len(idx_trval)} ảnh → đã lưu model.joblib")
+    print(f"""  Huấn luyện: (a) chỉ ảnh gốc  |  (b) ảnh gốc + 5 bản biến đổi mỗi ảnh train
+  Kiểm tra  : ảnh test gốc và ảnh test bị biến đổi (tham số ngẫu nhiên khác
+              với lúc tăng cường, để không "trùng đề").
+  ({best_fs}, {best_clf}, {best_norm}, {cfg['mode']})""")
+    r_plain = run_cv(D, cfg, groups, perturb=True)
+    r_aug = run_cv(D, cfg, groups, use_aug=True, perturb=True)
+
+    conds = ["Ảnh gốc"] + list(AUGMENTS)
+
+    def f1_on(r, cond):
+        pred = r["oof"] if cond == "Ảnh gốc" else r["pert"][cond]
+        return f1_score(y, pred, average="macro", zero_division=0)
+
+    rows5 = [[c, f1_on(r_plain, c), f1_on(r_aug, c)] for c in conds]
+    print(f"\n  {'Ảnh test':12s} {'(a) không tăng cường':>21s} {'(b) có tăng cường':>18s}")
+    for c, a, b in rows5:
+        print(f"  {c:12s} {a:21.3f} {b:18.3f}")
+    mean_a = np.mean([a for _, a, _ in rows5])
+    mean_b = np.mean([b for _, _, b in rows5])
+    print(f"  {'Trung bình':12s} {mean_a:21.3f} {mean_b:18.3f}")
+    save_csv(P("kich_ban5_bien_doi_anh.csv"),
+             ["anh_test", "khong_tang_cuong", "co_tang_cuong"],
+             [[c, round(a, 4), round(b, 4)] for c, a, b in rows5])
+    plot_bars(conds, [("(a) Không tăng cường", [a for _, a, _ in rows5], None),
+                      ("(b) Có tăng cường", [b for _, _, b in rows5], None)],
+              "Độ bền với biến đổi ảnh test", P("kich_ban5.png"), "Kịch bản 5")
+
+    use_aug = bool(mean_b > mean_a)
+    final = r_aug if use_aug else r_plain
+    print(f"\n  ⇒ {'Dùng' if use_aug else 'Không dùng'} tăng cường dữ liệu cho mô hình cuối")
+
+    # ------------------------------------------------------------
+    section("BƯỚC 10 - HUẤN LUYỆN MÔ HÌNH CUỐI (toàn bộ dữ liệu)")
+    # ------------------------------------------------------------
+    all_idx = np.arange(len(y))
+    cfg["params"] = inner_tune(D, cfg, groups, all_idx)
+    cfg["features"], cfg["augment"] = best_fs, use_aug
+    model, vkey = fit_model(D, cfg, groups, cfg["params"], all_idx, use_aug)
+    joblib.dump(make_bundle(D, cfg, groups, model, vkey, classes), P("model.joblib"))
+    n_train = len(all_idx) * (1 + len(AUGMENTS) * use_aug)
+    print(f"  Cấu hình: {cfg}")
+    print(f"  Huấn luyện trên {n_train} mẫu → đã lưu model.joblib")
 
     # ------------------------------------------------------------
     section("BƯỚC 11 - DỰ ĐOÁN DỮ LIỆU MỚI")
     # ------------------------------------------------------------
-    rng = np.random.default_rng(SEED)
-    demo = rng.choice(idx_test, size=min(8, len(idx_test)), replace=False)
+    # Mô hình học trên khối 2-5, dự đoán ảnh khối 1 (lá chưa thấy khi học)
+    # qua đúng hàm predict_image mà du_doan.py dùng cho ảnh mới.
+    tr, te = outer_splits(y, g)[0]
+    m1, vk1 = fit_model(D, cfg, groups, inner_tune(D, cfg, groups, tr), tr, use_aug)
+    bundle1 = make_bundle(D, cfg, groups, m1, vk1, classes)
+    demo = np.random.default_rng(SEED).choice(te, size=min(8, len(te)), replace=False)
     demo_pred = []
+    print("  Mô hình học trên khối 2-5, dự đoán ảnh của khối 1:")
     for i in demo:
-        label, conf, info, _ = predict_image(images[i], bundle)
+        label, conf, info, _ = predict_image(images[i], bundle1)
         demo_pred.append(classes.index(label))
         c = f" ({conf:.0%})" if conf is not None else ""
-        print(f"  {os.path.basename(paths[i]):28s} thật = {classes[y[i]]:9s} "
-              f"đoán = {label:9s}{c}  [{info['method']}]")
+        print(f"    {os.path.basename(paths[i]):18s} thật = {classes[y[i]]:9s} "
+              f"đoán = {label:9s}{c}")
     plot_predictions(images, demo, y[demo], demo_pred, classes,
-                     "Bước 11 - Dự đoán ảnh test", P("buoc11_du_doan.png"))
+                     "Bước 11 - Dự đoán ảnh của lá chưa thấy khi huấn luyện",
+                     P("buoc11_du_doan.png"))
     print("  (Ảnh mới bất kỳ: python du_doan.py <ảnh hoặc thư mục>)")
 
     # ------------------------------------------------------------
-    section("BƯỚC 12 - ĐÁNH GIÁ HỆ THỐNG")
+    section("BƯỚC 12 - ĐÁNH GIÁ HỆ THỐNG (dự đoán out-of-fold)")
     # ------------------------------------------------------------
-    y_pred = model.predict(build_X(Fm, groups, idx_test, bovw))
-    mt = metrics(y[idx_test], y_pred)
-    print(f"  TẬP TEST ({len(idx_test)} ảnh): Accuracy = {mt['acc']:.3f}  "
-          f"Precision = {mt['prec']:.3f}  Recall = {mt['rec']:.3f}  F1 = {mt['f1']:.3f}\n")
-    print(classification_report(y[idx_test], y_pred, labels=range(len(classes)),
+    oof = final["oof"]
+    mt = metrics(y, oof)
+    print(f"  Mỗi ảnh được dự đoán bởi mô hình KHÔNG học khối chứa nó.")
+    print(f"  F1 từng fold: {', '.join(f'{v:.3f}' for v in final['f1s'])}"
+          f"  → {final['mean']:.3f} ± {final['std']:.3f}")
+    print(f"\n  Gộp {len(y)} ảnh: Accuracy = {mt['acc']:.3f}  Precision = {mt['prec']:.3f}"
+          f"  Recall = {mt['rec']:.3f}  F1 = {mt['f1']:.3f}\n")
+    print(classification_report(y, oof, labels=range(len(classes)),
                                 target_names=names(classes), digits=3, zero_division=0))
-    plot_confusion(y[idx_test], y_pred, classes, "Confusion matrix - Test",
-                   P("buoc12_confusion_test.png"))
-    wrong = idx_test[y_pred != y[idx_test]]
-    plot_predictions(images, wrong[:12], y[wrong[:12]],
-                     y_pred[y_pred != y[idx_test]][:12], classes,
-                     "Ảnh test bị đoán sai", P("buoc12_sai_test.png"))
-
-    mh = None
-    if h_feats is not None:
-        Hm = h_feats[cfg["mode"]]
-        h_pred = model.predict(build_X(Hm, groups, None, bovw))
-        mh = metrics(h_y, h_pred)
-        print(f"\n  TẬP TEST KHÓ ({len(h_y)} ảnh): Accuracy = {mh['acc']:.3f}  "
-              f"Precision = {mh['prec']:.3f}  Recall = {mh['rec']:.3f}  F1 = {mh['f1']:.3f}\n")
-        print(classification_report(h_y, h_pred, labels=range(len(classes)),
-                                    target_names=names(classes), digits=3,
-                                    zero_division=0))
-        plot_confusion(h_y, h_pred, classes, "Confusion matrix - Test khó",
-                       P("buoc12_confusion_hard.png"))
-        wrong_h = np.where(h_pred != h_y)[0]
-        plot_predictions(h_images, wrong_h[:12], h_y[wrong_h[:12]],
-                         h_pred[wrong_h[:12]], classes,
-                         "Ảnh test khó bị đoán sai", P("buoc12_sai_hard.png"))
-
-        # --------------------------------------------------------
-        section("KỊCH BẢN 5 - TỔNG QUÁT HÓA: MỌI BỘ PHÂN LỚP TRÊN TEST KHÓ")
-        # --------------------------------------------------------
-        Xtv = build_X(Fm, groups, None, fit_bovw(Fm, groups, idx_tr))
-        rows = []
-        print(f"  ({best_fs}, {cfg['mode']}, {best_norm})")
-        print(f"  {'Bộ phân lớp':20s} {'Test F1':>8s} {'Test khó F1':>12s} {'Chênh':>7s}")
-        for clf in clf_names:
-            r = tune(Xtv, y, idx_tr, idx_val, clf, cfg["scaler"], cfg["pca"])
-            m_c, b_c = final_fit(Fm, groups, y, idx_trval,
-                                 dict(cfg, clf=clf, params=r["params"]))
-            ft = f1_score(y[idx_test], m_c.predict(build_X(Fm, groups, idx_test, b_c)),
-                          average="macro", zero_division=0)
-            fh = f1_score(h_y, m_c.predict(build_X(Hm, groups, None, b_c)),
-                          average="macro", zero_division=0)
-            rows.append([clf, ft, fh])
-            print(f"  {clf:20s} {ft:8.3f} {fh:12.3f} {fh - ft:+7.3f}")
-        save_csv(P("kich_ban5_test_kho.csv"), ["bo_phan_lop", "test_f1", "hard_f1"],
-                 [[c, round(a, 4), round(b, 4)] for c, a, b in rows])
-        plot_hard_compare(rows, P("kich_ban5_test_kho.png"))
-    else:
-        print(f"\n  [!] Chưa có {args.hard} → bỏ qua đánh giá test khó và kịch bản 5")
+    plot_confusion(y, oof, classes, "Confusion matrix (out-of-fold)",
+                   P("buoc12_confusion.png"))
+    wrong = np.where(oof != y)[0]
+    print(f"  Số ảnh đoán sai: {len(wrong)} / {len(y)}")
+    for w in wrong[:15]:
+        print(f"    {os.path.basename(paths[w]):18s} thật = {classes[y[w]]:9s} "
+              f"đoán = {classes[oof[w]]}")
+    plot_predictions(images, wrong[:12], y[wrong[:12]], oof[wrong[:12]], classes,
+                     "Ảnh bị đoán sai", P("buoc12_anh_sai.png"))
 
     # ------------------------------------------------------------
     section("TỔNG KẾT")
     # ------------------------------------------------------------
     print(f"  Cấu hình tốt nhất : {best_fs} | {best_clf} | {best_norm} | "
-          f"{s3[best_mode]['name']}")
+          f"{s3[best_mode]['name']} | tăng cường: {'có' if use_aug else 'không'}")
     print(f"  Tham số           : {cfg['params']}")
-    print(f"  F1 test           : {mt['f1']:.3f}")
-    if mh is not None:
-        print(f"  F1 test khó       : {mh['f1']:.3f}")
+    print(f"  F1 group-CV       : {final['mean']:.3f} ± {final['std']:.3f}")
+    print(f"  Accuracy gộp      : {mt['acc']:.3f}")
+    print(f"  Thời gian chạy    : {(time.time() - t_start) / 60:.1f} phút")
     print(f"  Toàn bộ kết quả   : {rel(out)}{os.sep}")
 
     if args.show:

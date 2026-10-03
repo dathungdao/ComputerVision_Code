@@ -1,0 +1,282 @@
+
+==============================================================================
+BƯỚC 1 - XÁC ĐỊNH BÀI TOÁN VÀ LỚP ĐỐI TƯỢNG
+==============================================================================
+  Đối tượng    : lá của 4 loại rau thơm phổ biến ở chợ Việt Nam
+  Số lớp       : 4 - phân loại ĐA LỚP
+      hung_que = Húng quế : lá bầu dục nhọn, xanh đậm, bóng
+      tia_to   = Tía tô   : lá tròn hơn, mép răng cưa, mặt dưới tím
+      mui_tau  = Mùi tàu  : lá dài thuôn, mép răng cưa có gai, xanh nhạt
+      la_lot   = Lá lốt   : lá hình tim, to, bóng, gân nổi rõ
+  Cặp dễ nhầm  : Húng quế ↔ Tía tô (mặt trên tía tô cũng xanh, dáng bầu dục)
+  Đầu vào      : ảnh đơn chụp bằng điện thoại, MỘT lá trên nền giấy trắng
+  Loại bài toán: CLASSIFICATION (vị trí lá chỉ dùng để tách ROI ở bước 5)
+  Ứng dụng     : cân tự tính tiền ở siêu thị, app hỗ trợ người đi chợ
+
+==============================================================================
+BƯỚC 2 - THU THẬP VÀ TỔ CHỨC DỮ LIỆU
+==============================================================================
+  Thư mục: E:\Ky9\ComputerVision\ComputerVisionCode\Chuong3\dataset
+    hung_que  (Húng quế):   50 ảnh
+    tia_to    (Tía tô  ):   50 ảnh
+    mui_tau   (Mùi tàu ):   48 ảnh
+    la_lot    (Lá lốt  ):   50 ảnh
+  Đọc 198 ảnh trong 1s (giải mã ở 1/4 độ phân giải, thu nhỏ về cạnh dài 800px)
+  → Đã lưu results\buoc02_so_anh.png
+
+==============================================================================
+BƯỚC 3 - GÁN NHÃN DỮ LIỆU
+==============================================================================
+  Nhãn lấy theo tên thư mục, mã hóa thành số:
+    hung_que  (Húng quế) = 0
+    tia_to    (Tía tô) = 1
+    mui_tau   (Mùi tàu) = 2
+    la_lot    (Lá lốt) = 3
+
+  Mỗi lớp được chia thành 5 khối ảnh liên tiếp theo thứ tự chụp (dùng cho bước 9):
+    hung_que  K1: 01-10  K2: 11-20  K3: 21-30  K4: 31-40  K5: 41-50
+    tia_to    K1: 01-10  K2: 11-20  K3: 21-30  K4: 31-40  K5: 41-50
+    mui_tau   K1: 01-10  K2: 11-20  K3: 21-29  K4: 30-39  K5: 40-48
+    la_lot    K1: 01-10  K2: 11-20  K3: 21-30  K4: 31-40  K5: 41-50
+  → Đã lưu buoc03_nhan.csv
+
+==============================================================================
+BƯỚC 4, 5 - TIỀN XỬ LÝ VÀ TÁCH LÁ (ROI)
+==============================================================================
+  → Đã lưu results\buoc04_05_tien_xu_ly_roi.png
+    ảnh gốc xong (36s)
+    biến đổi 'Làm mờ' xong (107s)
+    biến đổi 'Thêm nhiễu' xong (205s)
+    biến đổi 'Làm sáng' xong (275s)
+    biến đổi 'Làm tối' xong (346s)
+    biến đổi 'Xoay' xong (418s)
+  Trích đặc trưng xong trong 418s
+
+  Kết quả tách lá (tach_la = tách được, toan_anh = không tách được):
+    hung_que  tach_la =   50   toan_anh =    0
+    tia_to    tach_la =   50   toan_anh =    0
+    mui_tau   tach_la =   48   toan_anh =    0
+    la_lot    tach_la =   50   toan_anh =    0
+  → Đã lưu lưới lá đã tách từng lớp trong results\roi/
+  Tách lá trên ảnh đã bị biến đổi:
+    Làm mờ     : 198/198 ảnh tách được lá
+    Thêm nhiễu : 198/198 ảnh tách được lá
+    Làm sáng   : 198/198 ảnh tách được lá
+    Làm tối    : 198/198 ảnh tách được lá
+    Xoay       : 198/198 ảnh tách được lá
+
+==============================================================================
+BƯỚC 6, 7 - TRÍCH CHỌN VÀ KẾT HỢP ĐẶC TRƯNG
+==============================================================================
+  Color   : 43 chiều (HSV hist + moments)
+  Texture : 33 chiều (LBP x2 + GLCM)
+  Shape   : 24 chiều (hình học + răng cưa + Hu + Fourier)
+  HOG     : 756 chiều
+  ORB     : trung bình 294 điểm/ảnh → BoVW 100 chiều
+
+  Các tổ hợp đặc trưng thử nghiệm: Color, Texture, Shape, HOG, ORB-BoVW, Color+Shape, Texture+Shape, Color+Texture+Shape, Color+Tex+Shape+HOG, Tất cả
+  → Đã lưu results\buoc06_dac_trung_hung_que.png
+  → Đã lưu results\buoc06_dac_trung_tia_to.png
+  → Đã lưu results\buoc06_dac_trung_mui_tau.png
+  → Đã lưu results\buoc06_dac_trung_la_lot.png
+  → Đã lưu results\buoc06_bien_doi_anh.png
+
+==============================================================================
+BƯỚC 9 - CHIA DỮ LIỆU: GROUP 5-FOLD CROSS-VALIDATION
+==============================================================================
+  Mỗi lá được chụp ~10 ảnh liên tiếp. Chia NGẪU NHIÊN theo ảnh sẽ để ảnh
+  của cùng một lá ở cả train và test → mô hình "nhớ lá" → kết quả cao ảo.
+  → Fold k: test = khối k của mọi lớp, train = 4 khối còn lại.
+  → Siêu tham số chọn bằng CV lồng bên trong tập train (theo khối).
+  → Kết quả báo cáo = trung bình ± độ lệch chuẩn F1 (macro) qua 5 fold.
+    Fold 1: train = 158 ảnh, test =  40 ảnh (10, 10, 10, 10)
+    Fold 2: train = 158 ảnh, test =  40 ảnh (10, 10, 10, 10)
+    Fold 3: train = 159 ảnh, test =  39 ảnh (10, 10, 9, 10)
+    Fold 4: train = 158 ảnh, test =  40 ảnh (10, 10, 10, 10)
+    Fold 5: train = 159 ảnh, test =  39 ảnh (10, 10, 9, 10)
+
+==============================================================================
+BƯỚC 10 - KỊCH BẢN 1 - ĐẶC TRƯNG x BỘ PHÂN LỚP
+==============================================================================
+  Đặc trưng            Bộ phân lớp           Chiều   F1 (TB ± std)  Tham số chọn nhiều nhất
+  Color                KNN                      43    0.970 ± 0.029  {'n_neighbors': 3, 'weights': 'uniform'}
+  Color                SVM                      43    0.964 ± 0.021  {'C': 1, 'gamma': 'scale'}
+  Color                Decision Tree            43    0.904 ± 0.044  {'max_depth': None}
+  Color                Random Forest            43    0.955 ± 0.029  {'max_features': 'sqrt'}
+  Color                Naive Bayes              43    0.920 ± 0.049  {'var_smoothing': 1e-09}
+  Color                Logistic Regression      43    0.929 ± 0.052  {'C': 10}
+  Texture              KNN                      33    0.980 ± 0.029  {'n_neighbors': 3, 'weights': 'uniform'}
+  Texture              SVM                      33    0.975 ± 0.028  {'C': 10, 'gamma': 'scale'}
+  Texture              Decision Tree            33    0.850 ± 0.059  {'max_depth': None}
+  Texture              Random Forest            33    0.949 ± 0.032  {'max_features': 0.2}
+  Texture              Naive Bayes              33    0.954 ± 0.035  {'var_smoothing': 1e-09}
+  Texture              Logistic Regression      33    0.975 ± 0.028  {'C': 10}
+  Shape                KNN                      24    0.960 ± 0.047  {'n_neighbors': 5, 'weights': 'uniform'}
+  Shape                SVM                      24    0.945 ± 0.055  {'C': 10, 'gamma': 0.001}
+  Shape                Decision Tree            24    0.913 ± 0.149  {'max_depth': None}
+  Shape                Random Forest            24    0.926 ± 0.136  {'max_features': 'sqrt'}
+  Shape                Naive Bayes              24    0.935 ± 0.070  {'var_smoothing': 1e-09}
+  Shape                Logistic Regression      24    0.975 ± 0.028  {'C': 0.1}
+  HOG                  KNN                     756    0.959 ± 0.027  {'n_neighbors': 3, 'weights': 'uniform'}
+  HOG                  SVM                     756    0.980 ± 0.025  {'C': 1, 'gamma': 'scale'}
+  HOG                  Decision Tree           756    0.959 ± 0.020  {'max_depth': None}
+  HOG                  Random Forest           756    0.990 ± 0.020  {'max_features': 'sqrt'}
+  HOG                  Naive Bayes             756    0.934 ± 0.077  {'var_smoothing': 0.001}
+  HOG                  Logistic Regression     756    1.000 ± 0.000  {'C': 0.1}
+  ORB-BoVW             KNN                     100    0.933 ± 0.020  {'n_neighbors': 7, 'weights': 'distance'}
+  ORB-BoVW             SVM                     100    0.974 ± 0.017  {'C': 1, 'gamma': 'scale'}
+  ORB-BoVW             Decision Tree           100    0.820 ± 0.064  {'max_depth': None}
+  ORB-BoVW             Random Forest           100    0.969 ± 0.019  {'max_features': 'sqrt'}
+  ORB-BoVW             Naive Bayes             100    0.919 ± 0.041  {'var_smoothing': 0.001}
+  ORB-BoVW             Logistic Regression     100    0.969 ± 0.020  {'C': 0.1}
+  Color+Shape          KNN                      67    0.990 ± 0.012  {'n_neighbors': 3, 'weights': 'uniform'}
+  Color+Shape          SVM                      67    0.990 ± 0.020  {'C': 1, 'gamma': 0.001}
+  Color+Shape          Decision Tree            67    0.969 ± 0.038  {'max_depth': None}
+  Color+Shape          Random Forest            67    1.000 ± 0.000  {'max_features': 'sqrt'}
+  Color+Shape          Naive Bayes              67    0.985 ± 0.020  {'var_smoothing': 0.001}
+  Color+Shape          Logistic Regression      67    0.995 ± 0.010  {'C': 0.1}
+  Texture+Shape        KNN                      57    0.990 ± 0.012  {'n_neighbors': 1, 'weights': 'uniform'}
+  Texture+Shape        SVM                      57    0.970 ± 0.029  {'C': 10, 'gamma': 0.001}
+  Texture+Shape        Decision Tree            57    0.995 ± 0.010  {'max_depth': None}
+  Texture+Shape        Random Forest            57    1.000 ± 0.000  {'max_features': 'sqrt'}
+  Texture+Shape        Naive Bayes              57    0.980 ± 0.019  {'var_smoothing': 1e-09}
+  Texture+Shape        Logistic Regression      57    0.985 ± 0.020  {'C': 0.1}
+  Color+Texture+Shape  KNN                     100    0.995 ± 0.010  {'n_neighbors': 1, 'weights': 'uniform'}
+  Color+Texture+Shape  SVM                     100    0.990 ± 0.012  {'C': 1, 'gamma': 0.001}
+  Color+Texture+Shape  Decision Tree           100    0.985 ± 0.030  {'max_depth': None}
+  Color+Texture+Shape  Random Forest           100    1.000 ± 0.000  {'max_features': 'sqrt'}
+  Color+Texture+Shape  Naive Bayes             100    0.990 ± 0.021  {'var_smoothing': 0.001}
+  Color+Texture+Shape  Logistic Regression     100    0.995 ± 0.010  {'C': 0.1}
+  Color+Tex+Shape+HOG  KNN                     856    0.995 ± 0.010  {'n_neighbors': 1, 'weights': 'uniform'}
+  Color+Tex+Shape+HOG  SVM                     856    0.981 ± 0.038  {'C': 1, 'gamma': 'scale'}
+  Color+Tex+Shape+HOG  Decision Tree           856    0.959 ± 0.045  {'max_depth': None}
+  Color+Tex+Shape+HOG  Random Forest           856    1.000 ± 0.000  {'max_features': 'sqrt'}
+  Color+Tex+Shape+HOG  Naive Bayes             856    0.985 ± 0.012  {'var_smoothing': 0.001}
+  Color+Tex+Shape+HOG  Logistic Regression     856    1.000 ± 0.000  {'C': 0.1}
+  Tất cả               KNN                     956    0.995 ± 0.010  {'n_neighbors': 1, 'weights': 'uniform'}
+  Tất cả               SVM                     956    0.981 ± 0.038  {'C': 1, 'gamma': 'scale'}
+  Tất cả               Decision Tree           956    0.989 ± 0.021  {'max_depth': None}
+  Tất cả               Random Forest           956    1.000 ± 0.000  {'max_features': 'sqrt'}
+  Tất cả               Naive Bayes             956    0.985 ± 0.012  {'var_smoothing': 0.001}
+  Tất cả               Logistic Regression     956    1.000 ± 0.000  {'C': 0.1}
+  → Đã lưu results\kich_ban1_heatmap.png
+
+  ⇒ Tốt nhất: Texture+Shape + Random Forest (F1 = 1.000 ± 0.000)
+
+==============================================================================
+BƯỚC 8 - KỊCH BẢN 2 - CHUẨN HÓA VÀ GIẢM CHIỀU
+==============================================================================
+  (Texture+Shape + Random Forest)
+  Standardization        F1 = 1.000 ± 0.000
+  Không chuẩn hóa        F1 = 1.000 ± 0.000
+  Min-Max                F1 = 1.000 ± 0.000
+  Standard + PCA 95%     F1 = 0.959 ± 0.042
+
+  ⇒ Chọn: Standardization
+
+==============================================================================
+BƯỚC 5 - KỊCH BẢN 3 - CÓ TÁCH LÁ (ROI) vs DÙNG CẢ ẢNH
+==============================================================================
+  Tách lá + xoay chuẩn     F1 = 1.000 ± 0.000
+  Cả ảnh (không tách)      F1 = 0.923 ± 0.064
+  (Khi dùng cả ảnh, đặc trưng Shape không có ý nghĩa vì mask là cả khung.)
+
+  ⇒ Cấu hình: Texture+Shape | {'mode': 'roi', 'clf': 'Random Forest', 'scaler': 'standard', 'pca': False}
+
+==============================================================================
+BƯỚC 9 - KỊCH BẢN 4 - CHIA NGẪU NHIÊN vs CHIA THEO KHỐI ẢNH
+==============================================================================
+  Cùng đặc trưng / chuẩn hóa, so sánh 2 cách chia 5-fold:
+  Bộ phân lớp              Ngẫu nhiên      Theo khối   Chênh
+  KNN                    0.990 ± 0.013   0.990 ± 0.012  -0.000
+  SVM                    0.985 ± 0.013   0.970 ± 0.029  +0.015
+  Decision Tree          0.995 ± 0.010   0.995 ± 0.010  +0.000
+  Random Forest          0.995 ± 0.010   1.000 ± 0.000  -0.005
+  Naive Bayes            0.990 ± 0.020   0.980 ± 0.019  +0.010
+  Logistic Regression    0.990 ± 0.013   0.985 ± 0.020  +0.005
+  Chênh dương = chia ngẫu nhiên cho kết quả cao hơn thực tế (mô hình 'nhớ lá').
+  → Đã lưu results\kich_ban4.png
+
+==============================================================================
+KỊCH BẢN 5 - TĂNG CƯỜNG DỮ LIỆU VÀ ĐỘ BỀN VỚI BIẾN ĐỔI ẢNH
+==============================================================================
+  Huấn luyện: (a) chỉ ảnh gốc  |  (b) ảnh gốc + 5 bản biến đổi mỗi ảnh train
+  Kiểm tra  : ảnh test gốc và ảnh test bị biến đổi (tham số ngẫu nhiên khác
+              với lúc tăng cường, để không "trùng đề").
+  (Texture+Shape, Random Forest, Standardization, roi)
+
+  Ảnh test      (a) không tăng cường  (b) có tăng cường
+  Ảnh gốc                      1.000              0.949
+  Làm mờ                       0.659              0.985
+  Thêm nhiễu                   0.606              0.949
+  Làm sáng                     1.000              0.949
+  Làm tối                      0.990              0.965
+  Xoay                         0.980              0.944
+  Trung bình                   0.872              0.957
+  → Đã lưu results\kich_ban5.png
+
+  ⇒ Dùng tăng cường dữ liệu cho mô hình cuối
+
+==============================================================================
+BƯỚC 10 - HUẤN LUYỆN MÔ HÌNH CUỐI (toàn bộ dữ liệu)
+==============================================================================
+  Cấu hình: {'mode': 'roi', 'clf': 'Random Forest', 'scaler': 'standard', 'pca': False, 'params': {'max_features': 'sqrt'}, 'features': 'Texture+Shape', 'augment': True}
+  Huấn luyện trên 1188 mẫu → đã lưu model.joblib
+
+==============================================================================
+BƯỚC 11 - DỰ ĐOÁN DỮ LIỆU MỚI
+==============================================================================
+  Mô hình học trên khối 2-5, dự đoán ảnh của khối 1:
+    hung_que_04.jpg    thật = hung_que  đoán = hung_que  (89%)
+    mui_tau_08.jpg     thật = mui_tau   đoán = mui_tau   (100%)
+    la_lot_03.jpg      thật = la_lot    đoán = la_lot    (96%)
+    mui_tau_03.jpg     thật = mui_tau   đoán = mui_tau   (100%)
+    tia_to_07.jpg      thật = tia_to    đoán = la_lot    (55%)
+    tia_to_06.jpg      thật = tia_to    đoán = la_lot    (80%)
+    hung_que_03.jpg    thật = hung_que  đoán = hung_que  (100%)
+    mui_tau_07.jpg     thật = mui_tau   đoán = mui_tau   (100%)
+  → Đã lưu results\buoc11_du_doan.png
+  (Ảnh mới bất kỳ: python du_doan.py <ảnh hoặc thư mục>)
+
+==============================================================================
+BƯỚC 12 - ĐÁNH GIÁ HỆ THỐNG (dự đoán out-of-fold)
+==============================================================================
+  Mỗi ảnh được dự đoán bởi mô hình KHÔNG học khối chứa nó.
+  F1 từng fold: 0.667, 1.000, 1.000, 1.000, 1.000  → 0.933 ± 0.133
+
+  Gộp 198 ảnh: Accuracy = 0.949  Precision = 0.958  Recall = 0.950  F1 = 0.949
+
+              precision    recall  f1-score   support
+
+    Húng quế      1.000     1.000     1.000        50
+      Tía tô      1.000     0.800     0.889        50
+     Mùi tàu      1.000     1.000     1.000        48
+      Lá lốt      0.833     1.000     0.909        50
+
+    accuracy                          0.949       198
+   macro avg      0.958     0.950     0.949       198
+weighted avg      0.958     0.949     0.949       198
+
+  → Đã lưu results\buoc12_confusion.png
+  Số ảnh đoán sai: 10 / 198
+    tia_to_01.jpg      thật = tia_to    đoán = la_lot
+    tia_to_02.jpg      thật = tia_to    đoán = la_lot
+    tia_to_03.jpg      thật = tia_to    đoán = la_lot
+    tia_to_04.jpg      thật = tia_to    đoán = la_lot
+    tia_to_05.jpg      thật = tia_to    đoán = la_lot
+    tia_to_06.jpg      thật = tia_to    đoán = la_lot
+    tia_to_07.jpg      thật = tia_to    đoán = la_lot
+    tia_to_08.jpg      thật = tia_to    đoán = la_lot
+    tia_to_09.jpg      thật = tia_to    đoán = la_lot
+    tia_to_10.jpg      thật = tia_to    đoán = la_lot
+  → Đã lưu results\buoc12_anh_sai.png
+
+==============================================================================
+TỔNG KẾT
+==============================================================================
+  Cấu hình tốt nhất : Texture+Shape | Random Forest | Standardization | Tách lá + xoay chuẩn | tăng cường: có
+  Tham số           : {'max_features': 'sqrt'}
+  F1 group-CV       : 0.933 ± 0.133
+  Accuracy gộp      : 0.949
+  Thời gian chạy    : 16.0 phút
+  Toàn bộ kết quả   : results\

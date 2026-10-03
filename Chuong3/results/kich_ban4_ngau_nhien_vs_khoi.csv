@@ -1,0 +1,7 @@
+﻿bo_phan_lop,ngau_nhien_tb,ngau_nhien_std,theo_khoi_tb,theo_khoi_std
+KNN,0.9897,0.0127,0.99,0.0123
+SVM,0.9847,0.0125,0.9699,0.0293
+Decision Tree,0.995,0.01,0.995,0.01
+Random Forest,0.995,0.01,1.0,0.0
+Naive Bayes,0.99,0.02,0.9799,0.0188
+Logistic Regression,0.9897,0.0127,0.985,0.02

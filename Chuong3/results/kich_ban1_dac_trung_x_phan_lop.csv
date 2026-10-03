@@ -1,0 +1,61 @@
+﻿dac_trung,bo_phan_lop,so_chieu,f1_tb,f1_std,f1_tung_fold,tham_so
+Color,KNN,43,0.9698,0.0293,0.949 1.000 0.925 0.975 1.000,"{'n_neighbors': 3, 'weights': 'uniform'}"
+Color,SVM,43,0.9642,0.0215,0.921 0.975 0.975 0.975 0.975,"{'C': 1, 'gamma': 'scale'}"
+Color,Decision Tree,43,0.904,0.044,0.848 0.975 0.872 0.926 0.899,{'max_depth': None}
+Color,Random Forest,43,0.9549,0.0292,0.950 1.000 0.925 0.975 0.925,{'max_features': 'sqrt'}
+Color,Naive Bayes,43,0.9203,0.0489,0.830 0.975 0.922 0.925 0.949,{'var_smoothing': 1e-09}
+Color,Logistic Regression,43,0.9289,0.052,0.873 1.000 0.975 0.925 0.872,{'C': 10}
+Texture,KNN,33,0.9799,0.0293,1.000 1.000 0.925 0.975 1.000,"{'n_neighbors': 3, 'weights': 'uniform'}"
+Texture,SVM,33,0.9749,0.0275,1.000 0.975 0.925 0.975 1.000,"{'C': 10, 'gamma': 'scale'}"
+Texture,Decision Tree,33,0.8501,0.0595,0.771 0.924 0.821 0.819 0.915,{'max_depth': None}
+Texture,Random Forest,33,0.9495,0.032,0.925 0.923 0.925 0.975 1.000,{'max_features': 0.2}
+Texture,Naive Bayes,33,0.9539,0.0347,0.949 0.949 0.896 0.975 1.000,{'var_smoothing': 1e-09}
+Texture,Logistic Regression,33,0.9749,0.0275,1.000 0.975 0.925 0.975 1.000,{'C': 10}
+Shape,KNN,24,0.9595,0.0467,0.874 0.975 1.000 1.000 0.948,"{'n_neighbors': 5, 'weights': 'uniform'}"
+Shape,SVM,24,0.9453,0.055,0.852 0.950 1.000 1.000 0.925,"{'C': 10, 'gamma': 0.001}"
+Shape,Decision Tree,24,0.9132,0.1489,0.616 0.975 0.975 1.000 1.000,{'max_depth': None}
+Shape,Random Forest,24,0.926,0.1358,0.655 0.975 1.000 1.000 1.000,{'max_features': 'sqrt'}
+Shape,Naive Bayes,24,0.9354,0.0696,0.848 0.854 1.000 1.000 0.975,{'var_smoothing': 1e-09}
+Shape,Logistic Regression,24,0.9749,0.0276,0.924 0.975 1.000 1.000 0.975,{'C': 0.1}
+HOG,KNN,756,0.9589,0.0269,0.949 1.000 0.920 0.950 0.975,"{'n_neighbors': 3, 'weights': 'uniform'}"
+HOG,SVM,756,0.9798,0.0247,0.949 1.000 1.000 0.949 1.000,"{'C': 1, 'gamma': 'scale'}"
+HOG,Decision Tree,756,0.9594,0.0204,0.975 0.975 0.950 0.923 0.974,{'max_depth': None}
+HOG,Random Forest,756,0.9899,0.0202,1.000 1.000 1.000 1.000 0.949,{'max_features': 'sqrt'}
+HOG,Naive Bayes,756,0.9343,0.077,0.896 1.000 1.000 0.975 0.801,{'var_smoothing': 0.001}
+HOG,Logistic Regression,756,1.0,0.0,1.000 1.000 1.000 1.000 1.000,{'C': 0.1}
+ORB-BoVW,KNN,100,0.9333,0.0202,0.899 0.950 0.920 0.949 0.947,"{'n_neighbors': 7, 'weights': 'distance'}"
+ORB-BoVW,SVM,100,0.9744,0.0167,0.975 0.975 1.000 0.975 0.947,"{'C': 1, 'gamma': 'scale'}"
+ORB-BoVW,Decision Tree,100,0.8204,0.0644,0.766 0.899 0.871 0.839 0.727,{'max_depth': None}
+ORB-BoVW,Random Forest,100,0.9691,0.0192,0.975 0.950 0.973 1.000 0.947,{'max_features': 'sqrt'}
+ORB-BoVW,Naive Bayes,100,0.9195,0.0413,0.854 0.899 0.973 0.950 0.921,{'var_smoothing': 0.001}
+ORB-BoVW,Logistic Regression,100,0.9691,0.0197,0.975 0.975 1.000 0.948 0.947,{'C': 0.1}
+Color+Shape,KNN,67,0.99,0.0123,0.975 1.000 1.000 1.000 0.975,"{'n_neighbors': 3, 'weights': 'uniform'}"
+Color+Shape,SVM,67,0.9899,0.0202,0.949 1.000 1.000 1.000 1.000,"{'C': 1, 'gamma': 0.001}"
+Color+Shape,Decision Tree,67,0.9693,0.038,0.975 1.000 0.897 0.975 1.000,{'max_depth': None}
+Color+Shape,Random Forest,67,1.0,0.0,1.000 1.000 1.000 1.000 1.000,{'max_features': 'sqrt'}
+Color+Shape,Naive Bayes,67,0.9849,0.0202,0.949 1.000 1.000 1.000 0.975,{'var_smoothing': 0.001}
+Color+Shape,Logistic Regression,67,0.995,0.01,0.975 1.000 1.000 1.000 1.000,{'C': 0.1}
+Texture+Shape,KNN,57,0.99,0.0123,1.000 1.000 0.975 0.975 1.000,"{'n_neighbors': 1, 'weights': 'uniform'}"
+Texture+Shape,SVM,57,0.9699,0.0293,0.950 1.000 0.925 0.975 1.000,"{'C': 10, 'gamma': 0.001}"
+Texture+Shape,Decision Tree,57,0.995,0.01,1.000 0.975 1.000 1.000 1.000,{'max_depth': None}
+Texture+Shape,Random Forest,57,1.0,0.0,1.000 1.000 1.000 1.000 1.000,{'max_features': 'sqrt'}
+Texture+Shape,Naive Bayes,57,0.9799,0.0188,0.950 1.000 0.975 1.000 0.975,{'var_smoothing': 1e-09}
+Texture+Shape,Logistic Regression,57,0.985,0.02,1.000 1.000 0.950 0.975 1.000,{'C': 0.1}
+Color+Texture+Shape,KNN,100,0.995,0.01,1.000 1.000 1.000 0.975 1.000,"{'n_neighbors': 1, 'weights': 'uniform'}"
+Color+Texture+Shape,SVM,100,0.99,0.0123,0.975 1.000 1.000 0.975 1.000,"{'C': 1, 'gamma': 0.001}"
+Color+Texture+Shape,Decision Tree,100,0.9849,0.0302,1.000 1.000 1.000 0.925 1.000,{'max_depth': None}
+Color+Texture+Shape,Random Forest,100,1.0,0.0,1.000 1.000 1.000 1.000 1.000,{'max_features': 'sqrt'}
+Color+Texture+Shape,Naive Bayes,100,0.9897,0.0206,0.948 1.000 1.000 1.000 1.000,{'var_smoothing': 0.001}
+Color+Texture+Shape,Logistic Regression,100,0.995,0.01,1.000 1.000 1.000 0.975 1.000,{'C': 0.1}
+Color+Tex+Shape+HOG,KNN,856,0.995,0.01,1.000 1.000 1.000 0.975 1.000,"{'n_neighbors': 1, 'weights': 'uniform'}"
+Color+Tex+Shape+HOG,SVM,856,0.9808,0.0383,1.000 1.000 1.000 0.904 1.000,"{'C': 1, 'gamma': 'scale'}"
+Color+Tex+Shape+HOG,Decision Tree,856,0.9591,0.0446,0.872 0.975 0.974 0.975 1.000,{'max_depth': None}
+Color+Tex+Shape+HOG,Random Forest,856,1.0,0.0,1.000 1.000 1.000 1.000 1.000,{'max_features': 'sqrt'}
+Color+Tex+Shape+HOG,Naive Bayes,856,0.985,0.0123,0.975 1.000 1.000 0.975 0.975,{'var_smoothing': 0.001}
+Color+Tex+Shape+HOG,Logistic Regression,856,1.0,0.0,1.000 1.000 1.000 1.000 1.000,{'C': 0.1}
+Tất cả,KNN,956,0.995,0.01,1.000 1.000 1.000 0.975 1.000,"{'n_neighbors': 1, 'weights': 'uniform'}"
+Tất cả,SVM,956,0.9808,0.0383,1.000 1.000 1.000 0.904 1.000,"{'C': 1, 'gamma': 'scale'}"
+Tất cả,Decision Tree,956,0.9894,0.0211,1.000 1.000 0.947 1.000 1.000,{'max_depth': None}
+Tất cả,Random Forest,956,1.0,0.0,1.000 1.000 1.000 1.000 1.000,{'max_features': 'sqrt'}
+Tất cả,Naive Bayes,956,0.985,0.0123,0.975 1.000 1.000 0.975 0.975,{'var_smoothing': 0.001}
+Tất cả,Logistic Regression,956,1.0,0.0,1.000 1.000 1.000 1.000 1.000,{'C': 0.1}

@@ -8,7 +8,8 @@
 | File | Nội dung |
 |---|---|
 | [nhan_dang_rau_thom.py](nhan_dang_rau_thom.py) | Toàn bộ pipeline 12 bước và 5 kịch bản thử nghiệm |
-| [du_doan.py](du_doan.py) | Dự đoán ảnh mới bằng mô hình đã lưu |
+| [du_doan.py](du_doan.py) | Dự đoán ảnh mới bằng mô hình đã lưu (dòng lệnh) |
+| [demo_web.py](demo_web.py) | Giao diện web demo: `python demo_web.py` → http://127.0.0.1:8501 |
 | [dataset/](dataset/) | 198 ảnh tự chụp (bản thu nhỏ 800px) |
 | [results/](results/) | Biểu đồ, bảng CSV, log đầy đủ ([log.txt](results/log.txt)), mô hình `model.joblib` |
 
